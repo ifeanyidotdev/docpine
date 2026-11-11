@@ -12,9 +12,14 @@ import type { WorkspaceConfig } from "../../types/docpine";
 
 interface ActiveWorkspaceViewProps {
   workspace: WorkspaceConfig;
+  /** Whether this workspace is the one currently shown on screen. */
+  isVisible?: boolean;
 }
 
-export function ActiveWorkspaceView({ workspace }: ActiveWorkspaceViewProps) {
+export function ActiveWorkspaceView({
+  workspace,
+  isVisible = true,
+}: ActiveWorkspaceViewProps) {
   const {
     tabsByWorkspace,
     activeTabIdByWorkspace,
@@ -85,30 +90,36 @@ export function ActiveWorkspaceView({ workspace }: ActiveWorkspaceViewProps) {
                 </button>
               </div>
             </div>
-          ) : activeTab.kind === "data" ? (
-            <DataExplorerTab
-              key={activeTab.id}
-              workspace={workspace}
-              tab={activeTab}
-            />
-          ) : activeTab.kind === "query" ? (
-            <QueryEditorTab
-              key={activeTab.id}
-              workspace={workspace}
-              tab={activeTab}
-            />
-          ) : activeTab.kind === "structure" ? (
-            <StructureDesignerTab
-              key={activeTab.id}
-              workspace={workspace}
-              tab={activeTab}
-            />
           ) : (
-            <ErDiagramTab
-              key={activeTab.id}
-              workspace={workspace}
-              tab={activeTab}
-            />
+            // Keep every opened tab mounted (hidden when inactive) so each tab
+            // preserves its loaded rows, filters, pagination, scroll & selection.
+            tabs.map((t) => {
+              const isTabActive = t.id === activeTab.id;
+              return (
+                <div
+                  key={t.id}
+                  className={
+                    isTabActive
+                      ? "flex-1 flex flex-col overflow-hidden"
+                      : "hidden"
+                  }
+                >
+                  {t.kind === "data" ? (
+                    <DataExplorerTab
+                      workspace={workspace}
+                      tab={t}
+                      isActive={isVisible && isTabActive}
+                    />
+                  ) : t.kind === "query" ? (
+                    <QueryEditorTab workspace={workspace} tab={t} />
+                  ) : t.kind === "structure" ? (
+                    <StructureDesignerTab workspace={workspace} tab={t} />
+                  ) : (
+                    <ErDiagramTab workspace={workspace} tab={t} />
+                  )}
+                </div>
+              );
+            })
           )}
         </main>
       </div>

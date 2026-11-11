@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { WorkspaceRail } from "./components/shell/WorkspaceRail";
 import { WorkspaceLaunchpad } from "./components/shell/WorkspaceLaunchpad";
 import { ActiveWorkspaceView } from "./components/workspace/ActiveWorkspaceView";
@@ -51,20 +51,37 @@ export default function App() {
   const activeWorkspace =
     workspaces.find((w) => w.id === activeWorkspaceId) || null;
 
+  // Keep every workspace the user has opened mounted (hidden when inactive),
+  // so switching workspaces preserves each one's tabs and loaded data.
+  const [visitedIds, setVisitedIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (activeWorkspaceId && !visitedIds.includes(activeWorkspaceId)) {
+      setVisitedIds((prev) => [...prev, activeWorkspaceId]);
+    }
+  }, [activeWorkspaceId, visitedIds]);
+
+  const mountedWorkspaces = workspaces.filter((w) =>
+    visitedIds.includes(w.id)
+  );
+
   return (
     <div className="h-screen w-screen flex bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* Left Dock: Workspace Switcher Rail */}
       <WorkspaceRail />
 
-      {/* Main Content: Either Home Launchpad or Isolated Workspace View */}
-      {activeWorkspace ? (
-        <ActiveWorkspaceView
-          key={activeWorkspace.id}
-          workspace={activeWorkspace}
-        />
-      ) : (
-        <WorkspaceLaunchpad />
-      )}
+      {/* Main Content: Home Launchpad or isolated (persisted) Workspace Views */}
+      {!activeWorkspace && <WorkspaceLaunchpad />}
+      {mountedWorkspaces.map((ws) => {
+        const visible = ws.id === activeWorkspace?.id;
+        return (
+          <div
+            key={ws.id}
+            className={visible ? "flex-1 flex overflow-hidden" : "hidden"}
+          >
+            <ActiveWorkspaceView workspace={ws} isVisible={visible} />
+          </div>
+        );
+      })}
 
       {/* Global Modals */}
       <WorkspaceConnectionModal />

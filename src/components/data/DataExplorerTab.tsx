@@ -20,6 +20,8 @@ import type {
 interface DataExplorerTabProps {
   workspace: WorkspaceConfig;
   tab: WorkspaceTab;
+  /** Only the visible tab should respond to global shortcuts like ⌘S. */
+  isActive?: boolean;
 }
 
 const EMPTY_STAGED: TabStagedState = {
@@ -28,7 +30,11 @@ const EMPTY_STAGED: TabStagedState = {
   deletes: {},
 };
 
-export function DataExplorerTab({ workspace, tab }: DataExplorerTabProps) {
+export function DataExplorerTab({
+  workspace,
+  tab,
+  isActive = true,
+}: DataExplorerTabProps) {
   const {
     stagedByTab,
     refreshTokenByTab,
@@ -464,6 +470,7 @@ export function DataExplorerTab({ workspace, tab }: DataExplorerTabProps) {
         container={tab.container || ""}
         staged={staged}
         applying={applying}
+        shortcutsEnabled={isActive}
         onApply={handleApplyStagedChanges}
         onDiscard={() => discardTabStagedChanges(tab.id)}
       />

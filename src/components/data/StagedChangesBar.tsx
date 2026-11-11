@@ -18,6 +18,8 @@ interface StagedChangesBarProps {
   container: string;
   staged: TabStagedState;
   applying: boolean;
+  /** When false (tab hidden), ⌘S is not captured by this bar. */
+  shortcutsEnabled?: boolean;
   onApply: () => Promise<void>;
   onDiscard: () => void;
 }
@@ -29,6 +31,7 @@ export function StagedChangesBar({
   container,
   staged,
   applying,
+  shortcutsEnabled = true,
   onApply,
   onDiscard,
 }: StagedChangesBarProps) {
@@ -66,7 +69,7 @@ export function StagedChangesBar({
 
   // Keyboard shortcut Cmd+S / Ctrl+S to commit staged changes
   useEffect(() => {
-    if (totalCount === 0) return;
+    if (totalCount === 0 || !shortcutsEnabled) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -75,7 +78,7 @@ export function StagedChangesBar({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [totalCount, onApply]);
+  }, [totalCount, onApply, shortcutsEnabled]);
 
   if (totalCount === 0) return null;
 
