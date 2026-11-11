@@ -1,5 +1,6 @@
 use crate::drivers::sql_helpers::{
-    build_select_page_queries, generate_ddl_statement, generate_mutation_statements,
+    bounded_count_sql, build_select_page_queries, generate_ddl_statement,
+    generate_mutation_statements, EXACT_COUNT_CAP,
 };
 use crate::drivers::WorkspaceDriver;
 use crate::error::{AppError, AppResult};
@@ -184,19 +185,37 @@ impl WorkspaceDriver for MySqlDriver {
             .await
             .map_err(|e| AppError::Query(format!("Failed to list MySQL tables: {e}")))?;
 
-        let containers: Vec<ContainerSummary> = table_rows
+        let mut containers: Vec<ContainerSummary> = table_rows
             .into_iter()
-            .map(|(name, ttype, est)| ContainerSummary {
-                name,
-                schema: None,
-                kind: if ttype.contains("VIEW") {
-                    ContainerKind::View
-                } else {
-                    ContainerKind::Table
-                },
-                estimated_rows: est,
+            .map(|(name, ttype, est)| {
+                let is_view = ttype.contains("VIEW");
+                ContainerSummary {
+                    name,
+                    schema: None,
+                    kind: if is_view {
+                        ContainerKind::View
+                    } else {
+                        ContainerKind::Table
+                    },
+                    // InnoDB TABLE_ROWS is a cached estimate (often 0 for new or
+                    // recently loaded tables), so treat 0 as "unknown".
+                    estimated_rows: if is_view { None } else { est.filter(|v| *v > 0) },
+                    row_count_capped: false,
+                }
             })
             .collect();
+
+        // Bounded exact count for tables with no usable estimate.
+        for c in containers
+            .iter_mut()
+            .filter(|c| matches!(c.kind, ContainerKind::Table) && c.estimated_rows.is_none())
+        {
+            let sql = bounded_count_sql(DatabaseEngine::Mysql, None, &c.name);
+            if let Ok(Some(n)) = conn.query_first::<u64, _>(sql).await {
+                c.estimated_rows = Some(n.min(EXACT_COUNT_CAP));
+                c.row_count_capped = n > EXACT_COUNT_CAP;
+            }
+        }
 
         let fk_rows: Vec<(String, String, String, String, String)> = conn
             .exec(

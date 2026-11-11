@@ -328,6 +328,7 @@ impl WorkspaceDriver for MongoDriver {
                 schema: None,
                 kind: ContainerKind::Collection,
                 estimated_rows: est,
+                row_count_capped: false,
             });
 
             // Sample up to 20 documents to infer field names and BSON types

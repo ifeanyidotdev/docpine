@@ -1,5 +1,6 @@
 use crate::drivers::sql_helpers::{
-    build_select_page_queries, generate_ddl_statement, generate_mutation_statements,
+    bounded_count_sql, build_select_page_queries, generate_ddl_statement,
+    generate_mutation_statements, EXACT_COUNT_CAP,
 };
 use crate::drivers::WorkspaceDriver;
 use crate::error::{AppError, AppResult};
@@ -147,10 +148,12 @@ impl WorkspaceDriver for PostgresDriver {
                     t.table_schema,
                     t.table_name,
                     t.table_type,
-                    GREATEST(c.reltuples::bigint, 0) AS est_rows
+                    c.reltuples::bigint AS est_rows,
+                    s.n_live_tup::bigint AS live_rows
                 FROM information_schema.tables t
                 LEFT JOIN pg_namespace n ON n.nspname = t.table_schema
                 LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = t.table_name
+                LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
                 WHERE t.table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 ORDER BY t.table_schema, t.table_name;
                 "#,
@@ -164,7 +167,14 @@ impl WorkspaceDriver for PostgresDriver {
             let schema_name: String = row.get(0);
             let table_name: String = row.get(1);
             let table_type: String = row.get(2);
+            // `reltuples` is -1 (never analyzed, PG14+) or 0 until ANALYZE/autovacuum
+            // runs, so fall back to live tuple stats when the estimate is unusable.
             let est_rows: Option<i64> = row.get(3);
+            let live_rows: Option<i64> = row.get(4);
+            let known = est_rows
+                .filter(|v| *v > 0)
+                .or(live_rows.filter(|v| *v > 0))
+                .map(|v| v as u64);
             let kind = if table_type.contains("VIEW") {
                 ContainerKind::View
             } else {
@@ -174,8 +184,38 @@ impl WorkspaceDriver for PostgresDriver {
                 name: table_name,
                 schema: Some(schema_name),
                 kind,
-                estimated_rows: est_rows.map(|v| v.max(0) as u64),
+                estimated_rows: known,
+                row_count_capped: false,
             });
+        }
+
+        // For base tables with no usable statistics, run a bounded exact count
+        // (pipelined concurrently on the same connection).
+        let pending: Vec<usize> = containers
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| matches!(c.kind, ContainerKind::Table) && c.estimated_rows.is_none())
+            .map(|(i, _)| i)
+            .collect();
+
+        let count_futures = pending.iter().map(|&i| {
+            let c = &containers[i];
+            let sql = bounded_count_sql(DatabaseEngine::Postgres, c.schema.as_deref(), &c.name);
+            let client_ref = &client;
+            async move {
+                client_ref
+                    .query_one(&sql, &[])
+                    .await
+                    .ok()
+                    .map(|r| r.get::<_, i64>(0).max(0) as u64)
+            }
+        });
+        let counts = futures::future::join_all(count_futures).await;
+        for (&i, count) in pending.iter().zip(counts) {
+            if let Some(n) = count {
+                containers[i].estimated_rows = Some(n.min(EXACT_COUNT_CAP));
+                containers[i].row_count_capped = n > EXACT_COUNT_CAP;
+            }
         }
 
         let fk_rows = client

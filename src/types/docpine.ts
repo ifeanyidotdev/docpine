@@ -165,6 +165,7 @@ export interface ContainerSummary {
   schema?: string | null;
   kind: ContainerKind;
   estimatedRows?: number | null;
+  rowCountCapped?: boolean;
 }
 
 export interface IndexDefinition {

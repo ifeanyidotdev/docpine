@@ -131,6 +131,9 @@ pub struct ContainerSummary {
     pub schema: Option<String>,
     pub kind: ContainerKind,
     pub estimated_rows: Option<u64>,
+    /// True when `estimated_rows` is a capped exact count (real count is larger).
+    #[serde(default)]
+    pub row_count_capped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

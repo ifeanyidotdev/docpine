@@ -370,8 +370,16 @@ export function WorkspaceSidebar({ workspace }: WorkspaceSidebarProps) {
                     >
                       {item.estimatedRows !== undefined &&
                         item.estimatedRows !== null && (
-                          <span className="text-[10px] font-mono text-zinc-500 group-hover:hidden">
-                            {item.estimatedRows}
+                          <span
+                            title={
+                              item.rowCountCapped
+                                ? `Over ${item.estimatedRows.toLocaleString()} rows`
+                                : `${item.estimatedRows.toLocaleString()} rows`
+                            }
+                            className="text-[10px] font-mono text-zinc-500 group-hover:hidden"
+                          >
+                            {item.estimatedRows.toLocaleString()}
+                            {item.rowCountCapped ? "+" : ""}
                           </span>
                         )}
 

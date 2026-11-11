@@ -83,6 +83,13 @@ interface WorkspaceStoreState {
   disconnectFromWorkspace: (workspaceId: string) => Promise<void>;
   switchDatabase: (workspaceId: string, database: string) => Promise<void>;
   refreshSchema: (workspaceId: string, database?: string) => Promise<void>;
+  updateContainerRowCount: (
+    workspaceId: string,
+    database: string,
+    container: string,
+    schema: string | null | undefined,
+    rowCount: number
+  ) => void;
 
   openTab: (
     workspaceId: string,
@@ -434,6 +441,30 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         message: parsed.message,
       });
     }
+  },
+
+  updateContainerRowCount: (workspaceId, database, container, schema, rowCount) => {
+    const cacheKey = `${workspaceId}:${database}`;
+    set((s) => {
+      const overview = s.schemaByWorkspaceDb[cacheKey];
+      if (!overview) return s;
+      const nextContainers = overview.containers.map((c) => {
+        const matchSchema = (c.schema || null) === (schema || null);
+        if (c.name === container && matchSchema) {
+          return { ...c, estimatedRows: rowCount, rowCountCapped: false };
+        }
+        return c;
+      });
+      return {
+        schemaByWorkspaceDb: {
+          ...s.schemaByWorkspaceDb,
+          [cacheKey]: {
+            ...overview,
+            containers: nextContainers,
+          },
+        },
+      };
+    });
   },
 
   openTab: (workspaceId, tabInput) => {

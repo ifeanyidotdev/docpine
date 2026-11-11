@@ -49,6 +49,7 @@ export function DataExplorerTab({
     openTab,
     setImportExportTarget,
     loadSavedQueriesAndHistory,
+    updateContainerRowCount,
     pushToast,
   } = useWorkspaceStore();
 
@@ -85,6 +86,20 @@ export function DataExplorerTab({
         pageSize,
       });
       setDataPage(res);
+      if (
+        res.totalCount !== undefined &&
+        res.totalCount !== null &&
+        filters.length === 0 &&
+        !rawFilter.trim()
+      ) {
+        updateContainerRowCount(
+          workspace.id,
+          tab.database,
+          tab.container,
+          tab.schema,
+          res.totalCount
+        );
+      }
     } catch (err) {
       const parsed = parseAppError(err);
       pushToast({

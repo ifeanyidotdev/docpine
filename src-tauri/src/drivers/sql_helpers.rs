@@ -6,6 +6,20 @@ use crate::models::{
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Upper bound for exact row counts used when table statistics are unavailable.
+/// Keeps sidebar introspection fast on very large, never-analyzed tables.
+pub const EXACT_COUNT_CAP: u64 = 100_000;
+
+/// Builds `SELECT COUNT(*)` over at most `EXACT_COUNT_CAP + 1` rows, so callers can
+/// tell whether the true count exceeds the cap.
+pub fn bounded_count_sql(engine: DatabaseEngine, schema: Option<&str>, table: &str) -> String {
+    let table_ref = qualified_table(engine, schema, table);
+    format!(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM {table_ref} LIMIT {}) AS _docpine_cnt",
+        EXACT_COUNT_CAP + 1
+    )
+}
+
 pub fn quote_ident(engine: DatabaseEngine, ident: &str) -> String {
     match engine {
         DatabaseEngine::Postgres => format!("\"{}\"", ident.replace('"', "\"\"")),
