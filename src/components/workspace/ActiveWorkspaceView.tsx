@@ -1,0 +1,117 @@
+import React from "react";
+import { WorkspaceTopbar } from "./WorkspaceTopbar";
+import { WorkspaceSidebar } from "./WorkspaceSidebar";
+import { WorkspaceTabBar } from "./WorkspaceTabBar";
+import { DataExplorerTab } from "../data/DataExplorerTab";
+import { QueryEditorTab } from "../query/QueryEditorTab";
+import { StructureDesignerTab } from "../structure/StructureDesignerTab";
+import { ErDiagramTab } from "../erd/ErDiagramTab";
+import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { Database, Terminal, Network } from "lucide-react";
+import type { WorkspaceConfig } from "../../types/docpine";
+
+interface ActiveWorkspaceViewProps {
+  workspace: WorkspaceConfig;
+}
+
+export function ActiveWorkspaceView({ workspace }: ActiveWorkspaceViewProps) {
+  const {
+    tabsByWorkspace,
+    activeTabIdByWorkspace,
+    activeDatabaseByWorkspace,
+    openTab,
+  } = useWorkspaceStore();
+
+  const tabs = tabsByWorkspace[workspace.id] || [];
+  const activeTabId = activeTabIdByWorkspace[workspace.id];
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0] || null;
+  const activeDb =
+    activeDatabaseByWorkspace[workspace.id] || workspace.defaultDatabase;
+
+  return (
+    <div className="flex-1 h-full flex flex-col overflow-hidden bg-zinc-950">
+      {/* Top Workspace Header Bar */}
+      <WorkspaceTopbar workspace={workspace} />
+
+      {/* Main Split: Left Schema Explorer Sidebar + Right Multi-Tab Surface */}
+      <div className="flex-1 flex overflow-hidden">
+        <WorkspaceSidebar workspace={workspace} />
+
+        <main className="flex-1 flex flex-col overflow-hidden bg-zinc-950">
+          <WorkspaceTabBar workspaceId={workspace.id} />
+
+          {!activeTab ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-emerald-400">
+                <Database className="w-6 h-6" />
+              </div>
+              <div className="max-w-sm space-y-1">
+                <h3 className="text-sm font-semibold text-zinc-200">
+                  {workspace.name} Workspace Ready
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Select a{" "}
+                  {workspace.engine === "mongodb" ? "collection" : "table"} in
+                  the left sidebar to manipulate data, or launch a Query Editor
+                  or ER Diagram.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    openTab(workspace.id, {
+                      kind: "query",
+                      title: "Query 1",
+                      database: activeDb,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs"
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                  New Query Tab
+                </button>
+                <button
+                  onClick={() =>
+                    openTab(workspace.id, {
+                      kind: "erd",
+                      title: `ER Diagram (${activeDb})`,
+                      database: activeDb,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-semibold text-xs"
+                >
+                  <Network className="w-3.5 h-3.5 text-indigo-400" />
+                  Open ER Diagram
+                </button>
+              </div>
+            </div>
+          ) : activeTab.kind === "data" ? (
+            <DataExplorerTab
+              key={activeTab.id}
+              workspace={workspace}
+              tab={activeTab}
+            />
+          ) : activeTab.kind === "query" ? (
+            <QueryEditorTab
+              key={activeTab.id}
+              workspace={workspace}
+              tab={activeTab}
+            />
+          ) : activeTab.kind === "structure" ? (
+            <StructureDesignerTab
+              key={activeTab.id}
+              workspace={workspace}
+              tab={activeTab}
+            />
+          ) : (
+            <ErDiagramTab
+              key={activeTab.id}
+              workspace={workspace}
+              tab={activeTab}
+            />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
