@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { engineFullName } from "./WorkspaceRail";
+import { EnvironmentDropdownFilter } from "./EnvironmentDropdownFilter";
 import type { DatabaseEngine, EnvironmentTag } from "../../types/docpine";
 
 export function WorkspaceLaunchpad() {
@@ -121,7 +122,7 @@ export function WorkspaceLaunchpad() {
               <button
                 key={eng}
                 onClick={() => setEngineFilter(eng)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                   engineFilter === eng
                     ? "bg-zinc-800 text-white border-zinc-600"
                     : "bg-zinc-900/50 text-zinc-400 border-zinc-800/80 hover:text-zinc-200"
@@ -136,24 +137,11 @@ export function WorkspaceLaunchpad() {
                       : "MongoDB"}
               </button>
             ))}
-          </div>
 
-          <div className="flex items-center gap-1.5">
-            {(
-              ["all", "production", "staging", "development", "local"] as const
-            ).map((env) => (
-              <button
-                key={env}
-                onClick={() => setEnvFilter(env)}
-                className={`px-2.5 py-1.5 rounded-lg text-xs capitalize border transition-colors ${
-                  envFilter === env
-                    ? "bg-zinc-800 text-white border-zinc-600"
-                    : "bg-zinc-900/40 text-zinc-400 border-zinc-800/60 hover:text-zinc-200"
-                }`}
-              >
-                {env === "all" ? "All Envs" : env}
-              </button>
-            ))}
+            <EnvironmentDropdownFilter
+              value={envFilter}
+              onChange={setEnvFilter}
+            />
           </div>
         </div>
 
