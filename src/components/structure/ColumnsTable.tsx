@@ -120,6 +120,7 @@ export function ColumnsTable({
       {/* Add Column Form for SQL */}
       {!isReadOnly && !isMongo && (
         <form
+          autoComplete="off"
           onSubmit={(e) => void handleSubmit(e)}
           className="p-3 bg-zinc-950/70 border-t border-zinc-800 flex flex-wrap items-center gap-2"
         >
@@ -128,6 +129,10 @@ export function ColumnsTable({
             value={newColName}
             onChange={(e) => setNewColName(e.target.value)}
             placeholder="New column name..."
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
           <input
@@ -135,6 +140,10 @@ export function ColumnsTable({
             value={newColType}
             onChange={(e) => setNewColType(e.target.value)}
             placeholder="Data type (e.g. TEXT, INT, JSONB)"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-40 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500/60"
           />
           <input
@@ -142,6 +151,10 @@ export function ColumnsTable({
             value={newColDefault}
             onChange={(e) => setNewColDefault(e.target.value)}
             placeholder="Default (optional)"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-36 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
           />
           <label className="flex items-center gap-1.5 text-xs text-zinc-400 px-1 cursor-pointer">

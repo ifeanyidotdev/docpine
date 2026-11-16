@@ -54,6 +54,10 @@ export function ConnectionSslTab({
               value={caCertPath}
               onChange={(e) => setCaCertPath(e.target.value)}
               placeholder="/path/to/root-ca.pem"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
             />
           </div>

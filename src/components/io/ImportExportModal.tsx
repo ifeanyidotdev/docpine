@@ -266,6 +266,10 @@ export function ImportExportModal() {
                 placeholder={`/tmp/${importExportTarget.container}.${
                   format === "sql_insert" ? "sql" : format
                 }`}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 className="w-full px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200"
               />
             </div>
@@ -303,6 +307,10 @@ export function ImportExportModal() {
               rows={12}
               value={content}
               readOnly={isExport}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               onChange={(e) => setContent(e.target.value)}
               placeholder={
                 isExport

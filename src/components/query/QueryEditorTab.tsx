@@ -232,6 +232,7 @@ export function QueryEditorTab({ workspace, tab }: QueryEditorTabProps) {
 
             {saveOpen && (
               <form
+                autoComplete="off"
                 onSubmit={(e) => void handleSaveQuery(e)}
                 className="absolute left-0 top-9 z-30 w-64 p-3 rounded-xl bg-zinc-900 border border-zinc-700 shadow-2xl space-y-2"
               >
@@ -244,6 +245,10 @@ export function QueryEditorTab({ workspace, tab }: QueryEditorTabProps) {
                   onChange={(e) => setSaveTitle(e.target.value)}
                   placeholder="Query title..."
                   autoFocus
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-100"
                 />
                 <div className="flex justify-end gap-1.5">

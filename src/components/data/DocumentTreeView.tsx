@@ -222,6 +222,10 @@ export function DocumentTreeView({
                           <input
                             type="text"
                             autoFocus
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
                             value={editingField.value}
                             onChange={(e) =>
                               setEditingField({
@@ -288,6 +292,10 @@ export function DocumentTreeView({
                       type="text"
                       placeholder="field_name"
                       value={addingFieldTo.newKey}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       onChange={(e) =>
                         setAddingFieldTo({
                           ...addingFieldTo,
@@ -300,6 +308,10 @@ export function DocumentTreeView({
                       type="text"
                       placeholder="value (JSON or string)"
                       value={addingFieldTo.newVal}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       onChange={(e) =>
                         setAddingFieldTo({
                           ...addingFieldTo,

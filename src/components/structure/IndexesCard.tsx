@@ -88,6 +88,7 @@ export function IndexesCard({
 
       {!isReadOnly && (
         <form
+          autoComplete="off"
           onSubmit={(e) => void handleSubmit(e)}
           className="p-3 bg-zinc-950/70 border-t border-zinc-800 space-y-2"
         >
@@ -99,6 +100,10 @@ export function IndexesCard({
             value={newIdxName}
             onChange={(e) => setNewIdxName(e.target.value)}
             placeholder="Index name (e.g. idx_users_email)"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
           <input
@@ -106,6 +111,10 @@ export function IndexesCard({
             value={newIdxCols}
             onChange={(e) => setNewIdxCols(e.target.value)}
             placeholder="Columns comma-separated (e.g. email, status)"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
           <div className="flex items-center justify-between">

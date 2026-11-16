@@ -62,6 +62,10 @@ export function ConnectionSshTab({
                 value={sshHost}
                 onChange={(e) => setSshHost(e.target.value)}
                 placeholder="bastion.example.com"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -71,6 +75,7 @@ export function ConnectionSshTab({
                 type="number"
                 value={sshPort}
                 onChange={(e) => setSshPort(Number(e.target.value))}
+                autoComplete="off"
                 className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -83,6 +88,10 @@ export function ConnectionSshTab({
                 type="text"
                 value={sshUser}
                 onChange={(e) => setSshUser(e.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -108,6 +117,10 @@ export function ConnectionSshTab({
                 type="password"
                 value={sshPassword}
                 onChange={(e) => setSshPassword(e.target.value)}
+                autoComplete="new-password"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
               />
             </div>
@@ -122,6 +135,10 @@ export function ConnectionSshTab({
                   value={sshKeyPath}
                   onChange={(e) => setSshKeyPath(e.target.value)}
                   placeholder="~/.ssh/id_ed25519"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
                 />
               </div>
@@ -133,6 +150,10 @@ export function ConnectionSshTab({
                   type="password"
                   value={sshPassphrase}
                   onChange={(e) => setSshPassphrase(e.target.value)}
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   className="w-full px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
                 />
               </div>

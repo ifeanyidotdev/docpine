@@ -149,6 +149,10 @@ export function RowInspectorDrawer({
                 <textarea
                   rows={typeof val === "object" && val !== null ? 3 : 1}
                   disabled={readOnly}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   value={
                     val === null || val === undefined
                       ? "NULL"
@@ -178,6 +182,10 @@ export function RowInspectorDrawer({
           <textarea
             value={rawJson}
             disabled={readOnly}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             onChange={(e) => setRawJson(e.target.value)}
             className="flex-1 w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60 resize-none"
           />

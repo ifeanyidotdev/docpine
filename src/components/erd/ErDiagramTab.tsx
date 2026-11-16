@@ -201,6 +201,10 @@ export function ErDiagramTab({ workspace, tab }: ErDiagramTabProps) {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter entities..."
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="pl-8 pr-3 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none"
             />
           </div>

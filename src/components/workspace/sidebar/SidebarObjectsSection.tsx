@@ -159,6 +159,10 @@ export function SidebarObjectsSection({
                 ? "Filter collections..."
                 : "Filter tables & views..."
             }
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full pl-8 pr-2 py-1 rounded-lg bg-zinc-900/70 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50"
           />
         </div>
@@ -181,6 +185,7 @@ export function SidebarObjectsSection({
       {/* Inline Create Table / Collection Form */}
       {creatingContainer && (
         <form
+          autoComplete="off"
           onSubmit={(e) => void handleCreateContainer(e)}
           className="p-3 bg-zinc-900/90 border-b border-zinc-800 space-y-2"
         >
@@ -204,6 +209,10 @@ export function SidebarObjectsSection({
               value={newSchemaName}
               onChange={(e) => setNewSchemaName(e.target.value)}
               placeholder="Schema (default: public)"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
             />
           )}
@@ -217,6 +226,10 @@ export function SidebarObjectsSection({
                 : "Table name (e.g. customers)"
             }
             autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
           />
           <button

@@ -88,6 +88,10 @@ export function ConnectionGeneralTab({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Core Billing Prod, Analytics Staging, Local Mongo..."
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/60"
         />
       </div>
@@ -103,6 +107,10 @@ export function ConnectionGeneralTab({
             value={host}
             onChange={(e) => setHost(e.target.value)}
             placeholder="localhost or db.internal.net"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
         </div>
@@ -112,6 +120,7 @@ export function ConnectionGeneralTab({
             type="number"
             value={port}
             onChange={(e) => setPort(Number(e.target.value))}
+            autoComplete="off"
             className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
         </div>
@@ -126,6 +135,10 @@ export function ConnectionGeneralTab({
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder={engine === "mongodb" ? "(optional)" : "root"}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
         </div>
@@ -138,6 +151,10 @@ export function ConnectionGeneralTab({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
+            autoComplete="new-password"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
           />
         </div>
@@ -159,6 +176,10 @@ export function ConnectionGeneralTab({
                 ? "admin"
                 : "my_app_db"
           }
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm font-mono text-zinc-100 focus:outline-none focus:border-emerald-500/60"
         />
       </div>

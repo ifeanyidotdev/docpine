@@ -113,6 +113,10 @@ export function WorkspaceLaunchpad() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter workspaces by name, host, database, or engine..."
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-900/90 border border-zinc-800 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/60"
             />
           </div>

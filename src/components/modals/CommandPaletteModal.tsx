@@ -161,6 +161,10 @@ export function CommandPaletteModal() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Jump to workspace, table, collection, ER diagram, or command..."
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
           />
           <button

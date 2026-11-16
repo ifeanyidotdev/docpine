@@ -138,6 +138,7 @@ export function FilterToolbar({
 
           {/* Raw WHERE / Mongo JSON Filter Input */}
           <form
+            autoComplete="off"
             onSubmit={(e) => {
               e.preventDefault();
               onApplyFilter();
@@ -156,6 +157,10 @@ export function FilterToolbar({
                   ? '{"status": "active"}'
                   : "status = 'active' AND id > 10"
               }
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="flex-1 bg-transparent text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
             />
             <button
@@ -321,6 +326,10 @@ export function FilterToolbar({
                 <input
                   type="text"
                   value={rule.field}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   onChange={(e) =>
                     updateRule(rule.id, { field: e.target.value })
                   }
@@ -350,6 +359,10 @@ export function FilterToolbar({
                   <input
                     type="text"
                     value={rule.value}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                     onChange={(e) =>
                       updateRule(rule.id, { value: e.target.value })
                     }

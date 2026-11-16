@@ -231,6 +231,10 @@ export function DataTableGrid({
                   >
                     <input
                       type="text"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       value={
                         val === undefined
                           ? ""
@@ -384,6 +388,10 @@ export function DataTableGrid({
                           <input
                             type="text"
                             autoFocus
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
                             value={editingCell.draftValue}
                             onChange={(e) =>
                               setEditingCell({

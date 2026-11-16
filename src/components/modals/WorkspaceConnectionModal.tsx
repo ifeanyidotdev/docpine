@@ -289,6 +289,10 @@ export function WorkspaceConnectionModal() {
               }
             }}
             placeholder="Paste connection URI (postgres://, mysql://, mongodb://, mongodb+srv://)..."
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="flex-1 bg-transparent text-xs font-mono text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
           />
           <button
