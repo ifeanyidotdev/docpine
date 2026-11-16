@@ -20,7 +20,6 @@ export function WorkspaceLaunchpad() {
   const {
     workspaces,
     connectionStatus,
-    connectionLatency,
     selectWorkspace,
     openConnectionModal,
     deleteWorkspace,
@@ -176,7 +175,6 @@ export function WorkspaceLaunchpad() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filtered.map((ws) => {
               const status = connectionStatus[ws.id] || "disconnected";
-              const latency = connectionLatency[ws.id];
 
               return (
                 <div
@@ -287,14 +285,9 @@ export function WorkspaceLaunchpad() {
                   <div className="flex items-center justify-between pt-3.5 mt-4 border-t border-zinc-800/60 text-xs">
                     <div className="flex items-center gap-2">
                       {status === "connected" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                           <span>Connected</span>
-                          {latency !== undefined && (
-                            <span className="text-emerald-500 font-mono">
-                              ({latency}ms)
-                            </span>
-                          )}
                         </span>
                       ) : status === "connecting" ? (
                         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
