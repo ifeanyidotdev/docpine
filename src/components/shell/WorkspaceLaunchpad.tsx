@@ -6,13 +6,10 @@ import {
   Server,
   Shield,
   Lock,
-  Zap,
-  GitCommitHorizontal,
   Settings2,
   Trash2,
   ArrowUpRight,
   Layers,
-  Terminal,
 } from "lucide-react";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { engineFullName } from "./WorkspaceRail";
@@ -176,7 +173,7 @@ export function WorkspaceLaunchpad() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filtered.map((ws) => {
               const status = connectionStatus[ws.id] || "disconnected";
               const latency = connectionLatency[ws.id];
@@ -185,41 +182,36 @@ export function WorkspaceLaunchpad() {
                 <div
                   key={ws.id}
                   onClick={() => void selectWorkspace(ws.id)}
-                  className="group relative rounded-2xl bg-zinc-900/70 hover:bg-zinc-900 border border-zinc-800/90 hover:border-zinc-700 p-5 transition-all cursor-pointer flex flex-col justify-between shadow-lg hover:shadow-xl"
+                  className="group relative rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700/80 p-5 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5"
                 >
                   {/* Top Accent Line */}
                   <div
-                    className="absolute inset-x-0 top-0 h-1 rounded-t-2xl"
+                    className="absolute inset-x-0 top-0 h-[2.5px] rounded-t-2xl transition-all group-hover:h-[3px]"
                     style={{ backgroundColor: ws.accentColor }}
                   />
 
-                  <div className="space-y-3.5">
+                  <div className="space-y-4">
+                    {/* Header Badges & Actions */}
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md border ${engineBadgeStyle(
-                              ws.engine
-                            )}`}
-                          >
-                            {engineFullName(ws.engine)}
-                          </span>
-                          <span
-                            className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded-md border ${envBadgeStyle(
-                              ws.environment
-                            )}`}
-                          >
-                            {ws.environment}
-                          </span>
-                        </div>
-                        <h3 className="text-base font-semibold text-zinc-100 mt-2 group-hover:text-emerald-300 transition-colors flex items-center gap-1.5">
-                          {ws.name}
-                          <ArrowUpRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-emerald-400" />
-                        </h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md border tracking-wide ${engineBadgeStyle(
+                            ws.engine
+                          )}`}
+                        >
+                          {engineFullName(ws.engine)}
+                        </span>
+                        <span
+                          className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded-md border tracking-wide ${envBadgeStyle(
+                            ws.environment
+                          )}`}
+                        >
+                          {ws.environment}
+                        </span>
                       </div>
 
                       <div
-                        className="flex items-center gap-1"
+                        className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
@@ -232,86 +224,94 @@ export function WorkspaceLaunchpad() {
                         <button
                           onClick={() => void deleteWorkspace(ws.id)}
                           title="Delete Workspace"
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/15 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
 
-                    {/* Host & Default Database */}
-                    <div className="space-y-1.5 text-xs text-zinc-400 font-mono bg-zinc-950/60 p-3 rounded-xl border border-zinc-800/60">
+                    {/* Workspace Title */}
+                    <div>
+                      <h3 className="text-base font-semibold text-zinc-100 group-hover:text-emerald-300 transition-colors truncate">
+                        {ws.name}
+                      </h3>
+                    </div>
+
+                    {/* Host & Database Inset Box */}
+                    <div className="space-y-2 text-xs font-mono bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/60">
                       <div className="flex items-center gap-2 truncate">
                         <Server className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                        <span className="truncate">
+                        <span className="truncate text-zinc-300">
                           {ws.username ? `${ws.username}@` : ""}
                           {ws.host}:{ws.port}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 truncate">
-                        <Terminal className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                        <span className="truncate text-zinc-300">
-                          db: {ws.defaultDatabase || "(default)"}
-                        </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 truncate">
+                          <Database className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                          <span className="truncate text-zinc-400">
+                            db:{" "}
+                            <strong className="text-zinc-200 font-medium">
+                              {ws.defaultDatabase || "(default)"}
+                            </strong>
+                          </span>
+                        </div>
+
+                        {/* Optional SSL & SSH status indicators */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {ws.ssl?.enabled && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800"
+                              title="TLS/SSL Active"
+                            >
+                              <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                              SSL
+                            </span>
+                          )}
+                          {ws.ssh?.enabled && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800"
+                              title="SSH Bastion Active"
+                            >
+                              <Shield className="w-2.5 h-2.5 text-sky-400" />
+                              SSH
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Footer Pills */}
-                  <div className="flex items-center justify-between pt-4 mt-4 border-t border-zinc-800/70 text-[11px]">
+                  {/* Clean Footer */}
+                  <div className="flex items-center justify-between pt-3.5 mt-4 border-t border-zinc-800/60 text-xs">
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-300">
-                        {ws.commitMode === "staged" ? (
-                          <>
-                            <GitCommitHorizontal className="w-3 h-3 text-emerald-400" />
-                            Staged Diff
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-3 h-3 text-amber-400" />
-                            Immediate
-                          </>
-                        )}
-                      </span>
-
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-300">
-                        {ws.safetyMode === "read_only" ? (
-                          <>
-                            <Lock className="w-3 h-3 text-amber-400" />
-                            Read-Only
-                          </>
-                        ) : ws.safetyMode === "safe" ? (
-                          <>
-                            <Shield className="w-3 h-3 text-sky-400" />
-                            Safe Guard
-                          </>
-                        ) : (
-                          "Standard"
-                        )}
-                      </span>
+                      {status === "connected" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span>Connected</span>
+                          {latency !== undefined && (
+                            <span className="text-emerald-500 font-mono">
+                              ({latency}ms)
+                            </span>
+                          )}
+                        </span>
+                      ) : status === "connecting" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                          <span>Connecting...</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500">
+                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                          <span>Ready</span>
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          status === "connected"
-                            ? "bg-emerald-400"
-                            : status === "connecting"
-                              ? "bg-amber-400 animate-pulse"
-                              : status === "error"
-                                ? "bg-rose-500"
-                                : "bg-zinc-600"
-                        }`}
-                      />
-                      <span className="text-zinc-400">
-                        {status === "connected"
-                          ? latency !== undefined
-                            ? `${latency}ms`
-                            : "Live"
-                          : status === "connecting"
-                            ? "Connecting..."
-                            : "Open"}
-                      </span>
+                    <div className="flex items-center gap-1 text-xs font-medium text-zinc-400 group-hover:text-emerald-400 transition-colors">
+                      <span>Open</span>
+                      <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                     </div>
                   </div>
                 </div>
