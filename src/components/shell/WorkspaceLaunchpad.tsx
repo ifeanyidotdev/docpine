@@ -75,28 +75,21 @@ export function WorkspaceLaunchpad() {
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Hero Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-800/80">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
-                <Database className="w-6 h-6" />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight">
-                Docpine Workspaces
-              </h1>
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+              <Database className="w-6 h-6" />
             </div>
-            <p className="text-sm text-zinc-400 mt-1.5">
-              Each database connection opens as an isolated SQL or NoSQL
-              workspace with staged diff previews, instant editing, and schema
-              tools.
-            </p>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+              Docpine Workspaces
+            </h1>
           </div>
 
           <button
             onClick={() => openConnectionModal(null)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-sm shadow-lg shadow-emerald-950/50 transition-all cursor-pointer shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-sm shadow-lg shadow-emerald-950/50 transition-all cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            New Connection Workspace
+            New Workspace
           </button>
         </div>
 
