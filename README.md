@@ -67,20 +67,6 @@ Deep inspection, in-place cell editing, advanced visual filtering, and multi-tab
 
 ---
 
-## 🛠️ Architecture & Tech Stack
-
-| Layer | Technology |
-|---|---|
-| **Desktop Runtime** | [Tauri v2](https://v2.tauri.app/) (Rust 2021) |
-| **Frontend Framework** | [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) |
-| **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) (Minimal CSS footprint) |
-| **Runtime & Package Manager** | [Bun](https://bun.sh/) |
-| **Query Editor** | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
-| **Diagramming** | [@xyflow/react](https://reactflow.dev/) + Dagre |
-| **State Management** | [Zustand](https://github.com/pmndrs/zustand) |
-
----
-
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -127,13 +113,12 @@ Ensure you have the following installed:
 
 ---
 
-## 📄 License & Terms of Use
+## 🤝 Contributing
 
-Docpine is licensed under the **Docpine Software License**. See the [LICENSE](LICENSE) file for complete details.
+Contributions are welcome! Please check out the [Contribution Guide](CONTRIBUTING.md) for architecture details, the complete tech stack breakdown, local setup instructions, and pull request guidelines.
 
-### Summary:
-- **Free for Personal, Educational, and Research Use**: You are free to view, study, modify, and run the code for personal, non-commercial purposes.
-- **Attribution (Shoutout Required)**: Any use, distribution, or derivative work must include explicit attribution to the original author: **Ifeanyichukwu Sampson Ebenezer** ([ifeanyi.dev](https://ifeanyi.dev)).
-- **Commercial & Re-purposing Restriction**: Selling, white-labeling, re-branding, commercial hosting, or re-purposing the software as a paid or proprietary service is **strictly prohibited without prior explicit written permission** from the author.
+---
 
-To request commercial licensing, partnership, or permission for re-purposing, please contact the author at **ifeanyi.dev**.
+## 📄 License
+
+Docpine is distributed under the terms of the **Docpine Software License**. See the [LICENSE](LICENSE) file for complete details.
