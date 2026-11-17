@@ -53,7 +53,7 @@ export function DataExplorerTab({
     pushToast,
   } = useWorkspaceStore();
 
-  const [filters, setFilters] = useState<FilterRule[]>([]);
+  const [filters, setFilters] = useState<FilterRule[]>(tab.initialFilters || []);
   const [rawFilter, setRawFilter] = useState("");
   const [sorts, setSorts] = useState<SortRule[]>([]);
   const [page, setPage] = useState(1);
@@ -245,11 +245,6 @@ export function DataExplorerTab({
       }
     } else {
       stageFullRecordUpdate(tab.id, rowKey, identity, changes, original);
-      pushToast({
-        kind: "info",
-        title: "Document changes staged",
-        message: "Press ⌘S or click Apply Changes to commit.",
-      });
     }
   };
 
@@ -292,6 +287,36 @@ export function DataExplorerTab({
     }
   };
 
+  const handleFollowForeignKey = (
+    targetContainer: string,
+    targetColumn: string,
+    value: any,
+    targetSchema?: string | null
+  ) => {
+    openTab(workspace.id, {
+      kind: "data",
+      title: targetSchema ? `${targetSchema}.${targetContainer}` : targetContainer,
+      database: tab.database,
+      schema: targetSchema ?? tab.schema,
+      container: targetContainer,
+      dataViewMode: "table",
+      initialFilters: [
+        {
+          id: `fk_filter_${Date.now()}`,
+          field: targetColumn,
+          operator: "eq",
+          value: String(value),
+          enabled: true,
+        },
+      ],
+    });
+    pushToast({
+      kind: "info",
+      title: `Opened ${targetContainer}`,
+      message: `Filter: ${targetColumn} = ${value}`,
+    });
+  };
+
   const handleApplyStagedChanges = async () => {
     if (!tab.container) return;
     setApplying(true);
@@ -314,7 +339,7 @@ export function DataExplorerTab({
       pushToast({
         kind: "success",
         title: "Changes committed",
-        message: `+${res.insertedCount} inserted, ~${res.updatedCount} updated, -${res.deletedCount} deleted (${res.executionMs}ms)`,
+        message: `+${res.insertedCount} inserted, ~${res.updatedCount} updated, -${res.deletedCount} deleted`,
       });
       await fetchPage();
       void loadSavedQueriesAndHistory(workspace.id);
@@ -410,6 +435,10 @@ export function DataExplorerTab({
       <div className="flex-1 flex overflow-hidden relative">
         {viewMode === "table" && (
           <DataTableGrid
+            workspaceId={workspace.id}
+            database={tab.database}
+            schema={tab.schema}
+            container={tab.container}
             columns={columns}
             rows={rows}
             primaryKeys={primaryKeys}
@@ -433,6 +462,14 @@ export function DataExplorerTab({
             }}
             onRemoveDraftRow={(draftId) => removeStagedInsertRow(tab.id, draftId)}
             onToggleDeleteRow={(rk, id) => void handleToggleDeleteRow(rk, id)}
+            onFollowForeignKey={handleFollowForeignKey}
+            onCopyNotification={(count) =>
+              pushToast({
+                kind: "info",
+                title: "Copied to clipboard",
+                message: `${count} cell(s) copied as TSV`,
+              })
+            }
           />
         )}
 

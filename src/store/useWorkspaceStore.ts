@@ -51,6 +51,7 @@ interface WorkspaceStoreState {
 
   tabsByWorkspace: Record<string, WorkspaceTab[]>;
   activeTabIdByWorkspace: Record<string, string | null>;
+  activeTabIdByWorkspaceDb: Record<string, string | null>;
   stagedByTab: Record<string, TabStagedState>;
   refreshTokenByTab: Record<string, number>;
 
@@ -182,6 +183,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   tabsByWorkspace: {},
   activeTabIdByWorkspace: {},
+  activeTabIdByWorkspaceDb: {},
   stagedByTab: {},
   refreshTokenByTab: {},
 
@@ -222,6 +224,21 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         if (rawTabs) {
           const parsedTabs: WorkspaceTab[] = JSON.parse(rawTabs);
           if (Array.isArray(parsedTabs) && parsedTabs.length > 0) {
+            const dbMap: Record<string, string | null> = {};
+            for (const t of parsedTabs) {
+              const k = `${workspaceId}:${t.database}`;
+              if (!dbMap[k]) {
+                dbMap[k] = t.id;
+              }
+            }
+            const activeDb =
+              get().activeDatabaseByWorkspace[workspaceId] ||
+              ws.defaultDatabase ||
+              parsedTabs[0].database;
+
+            const initialActive =
+              dbMap[`${workspaceId}:${activeDb}`] || parsedTabs[0].id;
+
             set((s) => ({
               tabsByWorkspace: {
                 ...s.tabsByWorkspace,
@@ -229,7 +246,11 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
               },
               activeTabIdByWorkspace: {
                 ...s.activeTabIdByWorkspace,
-                [workspaceId]: parsedTabs[0].id,
+                [workspaceId]: initialActive,
+              },
+              activeTabIdByWorkspaceDb: {
+                ...s.activeTabIdByWorkspaceDb,
+                ...dbMap,
               },
             }));
           }
@@ -366,11 +387,31 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   switchDatabase: async (workspaceId, database) => {
+    const dbTabs = (get().tabsByWorkspace[workspaceId] || []).filter(
+      (t) => t.database === database
+    );
+    const rememberedActive =
+      get().activeTabIdByWorkspaceDb[`${workspaceId}:${database}`];
+    const targetActiveTab =
+      (rememberedActive && dbTabs.find((t) => t.id === rememberedActive)?.id) ||
+      dbTabs[0]?.id ||
+      null;
+
     set((s) => ({
       activeDatabaseByWorkspace: {
         ...s.activeDatabaseByWorkspace,
         [workspaceId]: database,
       },
+      activeTabIdByWorkspace: {
+        ...s.activeTabIdByWorkspace,
+        [workspaceId]: targetActiveTab,
+      },
+      activeTabIdByWorkspaceDb: targetActiveTab
+        ? {
+            ...s.activeTabIdByWorkspaceDb,
+            [`${workspaceId}:${database}`]: targetActiveTab,
+          }
+        : s.activeTabIdByWorkspaceDb,
     }));
     await get().refreshSchema(workspaceId, database);
   },
@@ -396,9 +437,11 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         schemaLoading: { ...s.schemaLoading, [cacheKey]: false },
       }));
 
-      // If workspace has no open tabs yet, open a default tab for immediate exploration
-      const existingTabs = get().tabsByWorkspace[workspaceId] || [];
-      if (existingTabs.length === 0) {
+      // If active database has no open tabs yet, open a default tab for immediate exploration
+      const existingDbTabs = (get().tabsByWorkspace[workspaceId] || []).filter(
+        (t) => t.database === db
+      );
+      if (existingDbTabs.length === 0) {
         if (overview.containers.length > 0) {
           const first = overview.containers[0];
           get().openTab(workspaceId, {
@@ -468,14 +511,22 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   openTab: (workspaceId, tabInput) => {
+    const ws = get().workspaces.find((w) => w.id === workspaceId);
+    const activeDb =
+      get().activeDatabaseByWorkspace[workspaceId] ||
+      ws?.defaultDatabase ||
+      "";
+    const db = tabInput.database || activeDb;
+    const finalTabInput = { ...tabInput, database: db };
     const existing = get().tabsByWorkspace[workspaceId] || [];
-    if (tabInput.kind === "data" || tabInput.kind === "structure") {
+
+    if (finalTabInput.kind === "data" || finalTabInput.kind === "structure") {
       const found = existing.find(
         (t) =>
-          t.kind === tabInput.kind &&
-          t.database === tabInput.database &&
-          (t.schema || null) === (tabInput.schema || null) &&
-          t.container === tabInput.container
+          t.kind === finalTabInput.kind &&
+          t.database === db &&
+          (t.schema || null) === (finalTabInput.schema || null) &&
+          t.container === finalTabInput.container
       );
       if (found) {
         set((s) => ({
@@ -483,19 +534,27 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
             ...s.activeTabIdByWorkspace,
             [workspaceId]: found.id,
           },
+          activeTabIdByWorkspaceDb: {
+            ...s.activeTabIdByWorkspaceDb,
+            [`${workspaceId}:${db}`]: found.id,
+          },
         }));
         return found.id;
       }
     }
-    if (tabInput.kind === "erd") {
+    if (finalTabInput.kind === "erd") {
       const foundErd = existing.find(
-        (t) => t.kind === "erd" && t.database === tabInput.database
+        (t) => t.kind === "erd" && t.database === db
       );
       if (foundErd) {
         set((s) => ({
           activeTabIdByWorkspace: {
             ...s.activeTabIdByWorkspace,
             [workspaceId]: foundErd.id,
+          },
+          activeTabIdByWorkspaceDb: {
+            ...s.activeTabIdByWorkspaceDb,
+            [`${workspaceId}:${db}`]: foundErd.id,
           },
         }));
         return foundErd.id;
@@ -506,7 +565,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     const newTab: WorkspaceTab = {
       id,
       workspaceId,
-      ...tabInput,
+      ...finalTabInput,
     };
     const nextTabs = [...existing, newTab];
     set((s) => ({
@@ -515,6 +574,10 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         ...s.activeTabIdByWorkspace,
         [workspaceId]: id,
       },
+      activeTabIdByWorkspaceDb: {
+        ...s.activeTabIdByWorkspaceDb,
+        [`${workspaceId}:${db}`]: id,
+      },
     }));
     persistTabs(workspaceId, nextTabs);
     return id;
@@ -522,25 +585,40 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   closeTab: (workspaceId, tabId) => {
     const existing = get().tabsByWorkspace[workspaceId] || [];
-    const idx = existing.findIndex((t) => t.id === tabId);
-    const nextTabs = existing.filter((t) => t.id !== tabId);
-    const currentActive = get().activeTabIdByWorkspace[workspaceId];
-    let nextActive = currentActive;
-    if (currentActive === tabId) {
-      nextActive =
-        nextTabs[Math.min(idx, nextTabs.length - 1)]?.id ??
-        nextTabs[0]?.id ??
+    const closingTab = existing.find((t) => t.id === tabId);
+    if (!closingTab) return;
+    const tabDb = closingTab.database;
+
+    const dbTabs = existing.filter((t) => t.database === tabDb);
+    const dbIdx = dbTabs.findIndex((t) => t.id === tabId);
+    const nextDbTabs = dbTabs.filter((t) => t.id !== tabId);
+
+    const currentDbActive =
+      get().activeTabIdByWorkspaceDb[`${workspaceId}:${tabDb}`] ??
+      get().activeTabIdByWorkspace[workspaceId];
+
+    let nextDbActive = currentDbActive;
+    if (currentDbActive === tabId) {
+      nextDbActive =
+        nextDbTabs[Math.min(dbIdx, nextDbTabs.length - 1)]?.id ??
+        nextDbTabs[0]?.id ??
         null;
     }
+
+    const nextTabs = existing.filter((t) => t.id !== tabId);
 
     set((s) => {
       const nextStaged = { ...s.stagedByTab };
       delete nextStaged[tabId];
       return {
         tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: nextTabs },
+        activeTabIdByWorkspaceDb: {
+          ...s.activeTabIdByWorkspaceDb,
+          [`${workspaceId}:${tabDb}`]: nextDbActive,
+        },
         activeTabIdByWorkspace: {
           ...s.activeTabIdByWorkspace,
-          [workspaceId]: nextActive,
+          [workspaceId]: nextDbActive,
         },
         stagedByTab: nextStaged,
       };
@@ -549,11 +627,21 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   },
 
   setActiveTab: (workspaceId, tabId) => {
+    const existing = get().tabsByWorkspace[workspaceId] || [];
+    const targetTab = existing.find((t) => t.id === tabId);
+    const tabDb = targetTab?.database;
+
     set((s) => ({
       activeTabIdByWorkspace: {
         ...s.activeTabIdByWorkspace,
         [workspaceId]: tabId,
       },
+      activeTabIdByWorkspaceDb: tabDb
+        ? {
+            ...s.activeTabIdByWorkspaceDb,
+            [`${workspaceId}:${tabDb}`]: tabId,
+          }
+        : s.activeTabIdByWorkspaceDb,
     }));
   },
 

@@ -275,6 +275,7 @@ export interface WorkspaceTab {
   container?: string;
   queryText?: string;
   dataViewMode?: DataViewMode;
+  initialFilters?: FilterRule[];
 }
 
 export interface TabStagedState {

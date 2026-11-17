@@ -9,12 +9,14 @@ use crate::models::{
     DataPageResult, DatabaseEngine, ForeignKeyEdge, IndexDefinition, MutationResult,
     QueryExecutionResult, SchemaChangeRequest, SchemaOverview, SslConfig, StagedBatchRequest,
 };
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Instant;
-use tokio_postgres::{Client, NoTls};
+use tokio::sync::RwLock;
+use tokio_postgres::NoTls;
 
 pub struct PostgresDriver {
     host: String,
@@ -23,6 +25,7 @@ pub struct PostgresDriver {
     password: Option<String>,
     default_database: String,
     ssl: SslConfig,
+    pools: RwLock<HashMap<String, Pool>>,
 }
 
 impl PostgresDriver {
@@ -34,28 +37,41 @@ impl PostgresDriver {
         default_database: String,
         ssl: SslConfig,
     ) -> AppResult<Self> {
+        let default_db = if default_database.trim().is_empty() {
+            "postgres".to_string()
+        } else {
+            default_database.trim().to_string()
+        };
+
         let driver = Self {
             host,
             port,
             username,
             password,
-            default_database: if default_database.trim().is_empty() {
-                "postgres".to_string()
-            } else {
-                default_database
-            },
+            default_database: default_db,
             ssl,
+            pools: RwLock::new(HashMap::new()),
         };
         let _ = driver.ping().await?;
         Ok(driver)
     }
 
-    async fn open_client(&self, database: &str) -> AppResult<Client> {
+    async fn open_client(&self, database: &str) -> AppResult<deadpool_postgres::Client> {
         let db_name = if database.trim().is_empty() {
             &self.default_database
         } else {
             database.trim()
         };
+
+        {
+            let r = self.pools.read().await;
+            if let Some(pool) = r.get(db_name) {
+                let client = pool.get().await.map_err(|e| {
+                    AppError::Connection(format!("PostgreSQL pool checkout failed: {e}"))
+                })?;
+                return Ok(client);
+            }
+        }
 
         let mut cfg = tokio_postgres::Config::new();
         cfg.host(&self.host);
@@ -66,7 +82,11 @@ impl PostgresDriver {
         }
         cfg.dbname(db_name);
 
-        if self.ssl.enabled {
+        let mgr_config = ManagerConfig {
+            recycling_method: RecyclingMethod::Fast,
+        };
+
+        let pool = if self.ssl.enabled {
             let mut builder = TlsConnector::builder();
             if !self.ssl.reject_unauthorized {
                 builder.danger_accept_invalid_certs(true);
@@ -75,24 +95,28 @@ impl PostgresDriver {
                 .build()
                 .map_err(|e| AppError::Connection(format!("TLS initialization error: {e}")))?;
             let tls = MakeTlsConnector::new(connector);
-            let (client, connection) = cfg
-                .connect(tls)
-                .await
-                .map_err(|e| AppError::Connection(format!("PostgreSQL TLS connect failed: {e}")))?;
-            tokio::spawn(async move {
-                let _ = connection.await;
-            });
-            Ok(client)
+            let mgr = Manager::from_config(cfg, tls, mgr_config);
+            Pool::builder(mgr)
+                .max_size(8)
+                .runtime(Runtime::Tokio1)
+                .build()
+                .map_err(|e| AppError::Connection(format!("Failed to build Postgres pool: {e}")))?
         } else {
-            let (client, connection) = cfg
-                .connect(NoTls)
-                .await
-                .map_err(|e| AppError::Connection(format!("PostgreSQL connect failed: {e}")))?;
-            tokio::spawn(async move {
-                let _ = connection.await;
-            });
-            Ok(client)
-        }
+            let mgr = Manager::from_config(cfg, NoTls, mgr_config);
+            Pool::builder(mgr)
+                .max_size(8)
+                .runtime(Runtime::Tokio1)
+                .build()
+                .map_err(|e| AppError::Connection(format!("Failed to build Postgres pool: {e}")))?
+        };
+
+        let client = pool.get().await.map_err(|e| {
+            AppError::Connection(format!("PostgreSQL initial pool checkout failed: {e}"))
+        })?;
+
+        let mut w = self.pools.write().await;
+        w.insert(db_name.to_string(), pool);
+        Ok(client)
     }
 }
 

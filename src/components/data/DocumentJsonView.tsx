@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Check, AlertCircle } from "lucide-react";
 import { buildRowIdentity } from "./DataTableGrid";
+import { handleMonacoBeforeMount, DOCPINE_THEME_NAME } from "../../lib/monacoTheme";
 
 interface DocumentJsonViewProps {
   rows: Record<string, any>[];
@@ -118,7 +119,8 @@ export function DocumentJsonView({
           <Editor
             height="100%"
             defaultLanguage="json"
-            theme="vs-dark"
+            theme={DOCPINE_THEME_NAME}
+            beforeMount={handleMonacoBeforeMount}
             value={jsonText}
             onChange={(v) => setJsonText(v || "")}
             options={{

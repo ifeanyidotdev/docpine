@@ -247,12 +247,9 @@ export function FilterToolbar({
             </select>
           </div>
 
-          {executionMs !== undefined && (
+          {totalCount !== undefined && totalCount !== null && (
             <span className="hidden lg:inline text-[11px] font-mono text-zinc-500">
-              {totalCount !== undefined && totalCount !== null
-                ? `${totalCount.toLocaleString()} rows • `
-                : ""}
-              {executionMs}ms
+              {totalCount.toLocaleString()} rows
             </span>
           )}
 

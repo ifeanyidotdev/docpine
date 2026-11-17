@@ -220,10 +220,10 @@ export function WorkspaceConnectionModal() {
     setTesting(true);
     setTestResult(null);
     try {
-      const latency = await ipc.testWorkspaceConnection(buildInputPayload());
+      await ipc.testWorkspaceConnection(buildInputPayload());
       setTestResult({
         ok: true,
-        message: `Connection verified in ${latency}ms`,
+        message: "Connection verified successfully",
       });
     } catch (err) {
       const parsedErr = parseAppError(err);

@@ -23,15 +23,21 @@ export function ActiveWorkspaceView({
   const {
     tabsByWorkspace,
     activeTabIdByWorkspace,
+    activeTabIdByWorkspaceDb,
     activeDatabaseByWorkspace,
     openTab,
   } = useWorkspaceStore();
 
-  const tabs = tabsByWorkspace[workspace.id] || [];
-  const activeTabId = activeTabIdByWorkspace[workspace.id];
-  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0] || null;
   const activeDb =
-    activeDatabaseByWorkspace[workspace.id] || workspace.defaultDatabase;
+    activeDatabaseByWorkspace[workspace.id] || workspace.defaultDatabase || "";
+  // Filter tabs strictly by the currently active database
+  const tabs = (tabsByWorkspace[workspace.id] || []).filter(
+    (t) => t.database === activeDb
+  );
+  const activeTabId =
+    activeTabIdByWorkspaceDb[`${workspace.id}:${activeDb}`] ??
+    activeTabIdByWorkspace[workspace.id];
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0] || null;
 
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden bg-zinc-950">

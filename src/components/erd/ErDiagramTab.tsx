@@ -46,7 +46,14 @@ function EntitySchemaNode({ data }: { data: EntityNodeData }) {
       >
         <div className="flex items-center gap-1.5 truncate">
           <Table2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <span className="font-bold text-zinc-100 truncate">{data.label}</span>
+          <div className="truncate">
+            {data.schema && (
+              <span className="text-[10px] text-zinc-400 block font-normal leading-tight truncate">
+                {data.schema}
+              </span>
+            )}
+            <span className="font-bold text-zinc-100 truncate">{data.label}</span>
+          </div>
         </div>
         <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400">
           {data.kind}
@@ -96,27 +103,32 @@ export function ErDiagramTab({ workspace, tab }: ErDiagramTabProps) {
   const { nodes, edges } = useMemo(() => {
     if (!overview) return { nodes: [], edges: [] };
 
+    const getContainerId = (schema?: string | null, name?: string) =>
+      schema ? `${schema}.${name}` : name || "";
+
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: "LR", nodesep: 60, ranksep: 110 });
     g.setDefaultEdgeLabel(() => ({}));
 
     const q = filter.trim().toLowerCase();
-    const filteredContainers = overview.containers.filter(
-      (c) => !q || c.name.toLowerCase().includes(q)
-    );
+    const filteredContainers = overview.containers.filter((c) => {
+      if (!q) return true;
+      const full = c.schema ? `${c.schema}.${c.name}` : c.name;
+      return full.toLowerCase().includes(q);
+    });
 
     const rawNodes: Node<EntityNodeData>[] = filteredContainers.map((c) => {
-      const colKey = c.schema ? `${c.schema}.${c.name}` : c.name;
+      const nodeId = getContainerId(c.schema, c.name);
       const cols =
-        overview.columnsByContainer[colKey] ||
+        overview.columnsByContainer[nodeId] ||
         overview.columnsByContainer[c.name] ||
         [];
 
       const height = Math.min(300, 48 + cols.length * 26);
-      g.setNode(c.name, { width: 260, height });
+      g.setNode(nodeId, { width: 260, height });
 
       return {
-        id: c.name,
+        id: nodeId,
         type: "entity",
         position: { x: 0, y: 0 },
         data: {
@@ -127,7 +139,7 @@ export function ErDiagramTab({ workspace, tab }: ErDiagramTabProps) {
           onOpenData: () =>
             openTab(workspace.id, {
               kind: "data",
-              title: c.name,
+              title: c.schema ? `${c.schema}.${c.name}` : c.name,
               database: tab.database,
               schema: c.schema,
               container: c.name,
@@ -141,15 +153,26 @@ export function ErDiagramTab({ workspace, tab }: ErDiagramTabProps) {
     const rawEdges: Edge[] = [];
 
     overview.foreignKeys.forEach((fk, idx) => {
-      if (
-        nodeSet.has(fk.sourceContainer) &&
-        nodeSet.has(fk.targetContainer)
-      ) {
-        g.setEdge(fk.sourceContainer, fk.targetContainer);
+      const sourceId = getContainerId(fk.sourceSchema, fk.sourceContainer);
+      const targetId = getContainerId(fk.targetSchema, fk.targetContainer);
+
+      const effectiveSource = nodeSet.has(sourceId)
+        ? sourceId
+        : nodeSet.has(fk.sourceContainer)
+          ? fk.sourceContainer
+          : null;
+      const effectiveTarget = nodeSet.has(targetId)
+        ? targetId
+        : nodeSet.has(fk.targetContainer)
+          ? fk.targetContainer
+          : null;
+
+      if (effectiveSource && effectiveTarget) {
+        g.setEdge(effectiveSource, effectiveTarget);
         rawEdges.push({
           id: `fk-${idx}-${fk.constraintName}`,
-          source: fk.sourceContainer,
-          target: fk.targetContainer,
+          source: effectiveSource,
+          target: effectiveTarget,
           label: `${fk.sourceColumn} → ${fk.targetColumn}`,
           animated: true,
           style: { stroke: "#818cf8", strokeWidth: 1.75 },

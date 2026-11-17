@@ -58,6 +58,38 @@ pub fn sql_literal(val: &Value) -> String {
     }
 }
 
+pub fn sql_filter_literal(engine: DatabaseEngine, raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.eq_ignore_ascii_case("true") {
+        return "TRUE".to_string();
+    }
+    if trimmed.eq_ignore_ascii_case("false") {
+        return "FALSE".to_string();
+    }
+    if trimmed.eq_ignore_ascii_case("null") {
+        return "NULL".to_string();
+    }
+    // Check if integer (e.g. 123, -45)
+    if trimmed.parse::<i64>().is_ok() {
+        return trimmed.to_string();
+    }
+    // Check if standard decimal number
+    if !trimmed.contains(['e', 'E'])
+        && trimmed
+            .parse::<f64>()
+            .map(|v| v.is_finite())
+            .unwrap_or(false)
+    {
+        return trimmed.to_string();
+    }
+    // PostgreSQL UUID check
+    if matches!(engine, DatabaseEngine::Postgres) && uuid::Uuid::parse_str(trimmed).is_ok() {
+        return format!("'{}'::uuid", trimmed.replace('\'', "''"));
+    }
+    // Default safe string literal
+    format!("'{}'", trimmed.replace('\'', "''"))
+}
+
 pub fn build_where_clause(
     engine: DatabaseEngine,
     filters: &[FilterRule],
@@ -67,14 +99,27 @@ pub fn build_where_clause(
 
     for rule in filters.iter().filter(|r| r.enabled && !r.field.trim().is_empty()) {
         let col = quote_ident(engine, rule.field.trim());
+        let val = sql_filter_literal(engine, &rule.value);
         let escaped_val = rule.value.replace('\'', "''");
         let cond = match rule.operator {
-            FilterOperator::Eq => format!("{col} = '{}'", escaped_val),
-            FilterOperator::Neq => format!("{col} != '{}'", escaped_val),
-            FilterOperator::Gt => format!("{col} > '{}'", escaped_val),
-            FilterOperator::Gte => format!("{col} >= '{}'", escaped_val),
-            FilterOperator::Lt => format!("{col} < '{}'", escaped_val),
-            FilterOperator::Lte => format!("{col} <= '{}'", escaped_val),
+            FilterOperator::Eq => {
+                if val == "NULL" {
+                    format!("{col} IS NULL")
+                } else {
+                    format!("{col} = {val}")
+                }
+            }
+            FilterOperator::Neq => {
+                if val == "NULL" {
+                    format!("{col} IS NOT NULL")
+                } else {
+                    format!("{col} != {val}")
+                }
+            }
+            FilterOperator::Gt => format!("{col} > {val}"),
+            FilterOperator::Gte => format!("{col} >= {val}"),
+            FilterOperator::Lt => format!("{col} < {val}"),
+            FilterOperator::Lte => format!("{col} <= {val}"),
             FilterOperator::Contains => match engine {
                 DatabaseEngine::Postgres => format!("{col}::text ILIKE '%{}%'", escaped_val),
                 _ => format!("{col} LIKE '%{}%'", escaped_val),
@@ -87,7 +132,7 @@ pub fn build_where_clause(
                 let items: Vec<String> = rule
                     .value
                     .split(',')
-                    .map(|item| format!("'{}'", item.trim().replace('\'', "''")))
+                    .map(|item| sql_filter_literal(engine, item.trim()))
                     .collect();
                 format!("{col} IN ({})", items.join(", "))
             }

@@ -18,6 +18,7 @@ export function WorkspaceTabBar({ workspaceId }: WorkspaceTabBarProps) {
   const {
     tabsByWorkspace,
     activeTabIdByWorkspace,
+    activeTabIdByWorkspaceDb,
     stagedByTab,
     activeDatabaseByWorkspace,
     workspaces,
@@ -26,11 +27,17 @@ export function WorkspaceTabBar({ workspaceId }: WorkspaceTabBarProps) {
     openTab,
   } = useWorkspaceStore();
 
-  const tabs = tabsByWorkspace[workspaceId] || [];
-  const activeTabId = activeTabIdByWorkspace[workspaceId];
   const ws = workspaces.find((w) => w.id === workspaceId);
   const activeDb =
     activeDatabaseByWorkspace[workspaceId] || ws?.defaultDatabase || "";
+
+  // Filter tabs strictly by the currently active database
+  const tabs = (tabsByWorkspace[workspaceId] || []).filter(
+    (t) => t.database === activeDb
+  );
+  const activeTabId =
+    activeTabIdByWorkspaceDb[`${workspaceId}:${activeDb}`] ??
+    activeTabIdByWorkspace[workspaceId];
 
   const tabIcon = (kind: WorkspaceTabKind) => {
     switch (kind) {

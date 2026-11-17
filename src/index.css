@@ -24,3 +24,29 @@
     background: rgba(161, 161, 170, 0.45);
   }
 }
+
+/* Seamless Docpine Dark Theme for Monaco Editor */
+.monaco-editor,
+.monaco-editor .margin,
+.monaco-editor-background,
+.monaco-editor .lines-content {
+  background-color: #09090b !important;
+  color: #e4e4e7;
+}
+
+.monaco-editor .current-line {
+  background-color: rgba(24, 24, 27, 0.6) !important;
+}
+
+.monaco-editor .line-numbers {
+  color: #52525b !important;
+}
+
+.monaco-editor .line-numbers.active-line-number {
+  color: #34d399 !important;
+}
+
+.monaco-editor .cursor {
+  background-color: #34d399 !important;
+  border-color: #34d399 !important;
+}

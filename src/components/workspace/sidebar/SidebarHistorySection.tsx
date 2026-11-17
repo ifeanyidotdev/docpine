@@ -46,7 +46,7 @@ export function SidebarHistorySection({
                   : "text-rose-400"
               }`}
             >
-              {item.status} • {item.executionMs}ms
+              {item.status}
             </span>
             <span className="text-zinc-500 font-mono">
               {new Date(item.executedAt).toLocaleTimeString()}

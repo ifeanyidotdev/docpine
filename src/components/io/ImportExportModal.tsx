@@ -146,7 +146,7 @@ export function ImportExportModal() {
       pushToast({
         kind: "success",
         title: `Imported ${res.insertedCount} record(s)`,
-        message: `into ${importExportTarget.container} (${res.executionMs}ms)`,
+        message: `into ${importExportTarget.container}`,
       });
 
       const wsTabs = tabsByWorkspace[importExportTarget.workspaceId] || [];
