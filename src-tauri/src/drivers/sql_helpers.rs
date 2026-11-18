@@ -434,4 +434,168 @@ mod tests {
         assert!(ddl.contains(r#""id" UUID NOT NULL DEFAULT gen_random_uuid()"#));
         assert!(ddl.contains(r#"PRIMARY KEY ("id")"#));
     }
+
+    #[test]
+    fn test_generate_ddl_alter_column_actions() {
+        // Add Column
+        let add_req = SchemaChangeRequest {
+            database: "app".into(),
+            schema: Some("public".into()),
+            container: "users".into(),
+            change: SchemaChangeAction::AddColumn {
+                column: ColumnMeta {
+                    name: "status".into(),
+                    data_type: "VARCHAR(50)".into(),
+                    is_primary_key: false,
+                    is_nullable: true,
+                    default_value: Some("'active'".into()),
+                    foreign_key_target: None,
+                },
+            },
+        };
+        let pg_ddl = generate_ddl_statement(DatabaseEngine::Postgres, &add_req).unwrap();
+        assert_eq!(
+            pg_ddl,
+            r#"ALTER TABLE "public"."users" ADD COLUMN "status" VARCHAR(50) DEFAULT 'active';"#
+        );
+
+        let mysql_ddl = generate_ddl_statement(DatabaseEngine::Mysql, &add_req).unwrap();
+        assert_eq!(
+            mysql_ddl,
+            r#"ALTER TABLE `public`.`users` ADD COLUMN `status` VARCHAR(50) DEFAULT 'active';"#
+        );
+
+        // Drop Column
+        let drop_req = SchemaChangeRequest {
+            database: "app".into(),
+            schema: None,
+            container: "users".into(),
+            change: SchemaChangeAction::DropColumn {
+                column_name: "status".into(),
+            },
+        };
+        let pg_drop = generate_ddl_statement(DatabaseEngine::Postgres, &drop_req).unwrap();
+        assert_eq!(pg_drop, r#"ALTER TABLE "users" DROP COLUMN "status";"#);
+
+        let mysql_drop = generate_ddl_statement(DatabaseEngine::Mysql, &drop_req).unwrap();
+        assert_eq!(mysql_drop, r#"ALTER TABLE `users` DROP COLUMN `status`;"#);
+    }
+
+    #[test]
+    fn test_generate_ddl_create_and_drop_index() {
+        let idx_req = SchemaChangeRequest {
+            database: "app".into(),
+            schema: Some("public".into()),
+            container: "users".into(),
+            change: SchemaChangeAction::CreateIndex {
+                index_name: "idx_users_email_tenant".into(),
+                columns: vec!["email".into(), "tenant_id".into()],
+                is_unique: true,
+            },
+        };
+        let pg_idx = generate_ddl_statement(DatabaseEngine::Postgres, &idx_req).unwrap();
+        assert_eq!(
+            pg_idx,
+            r#"CREATE UNIQUE INDEX "idx_users_email_tenant" ON "public"."users" ("email", "tenant_id");"#
+        );
+
+        let mysql_idx = generate_ddl_statement(DatabaseEngine::Mysql, &idx_req).unwrap();
+        assert_eq!(
+            mysql_idx,
+            r#"CREATE UNIQUE INDEX `idx_users_email_tenant` ON `public`.`users` (`email`, `tenant_id`);"#
+        );
+
+        // Drop Index
+        let drop_idx_req = SchemaChangeRequest {
+            database: "app".into(),
+            schema: Some("public".into()),
+            container: "users".into(),
+            change: SchemaChangeAction::DropIndex {
+                index_name: "idx_users_email_tenant".into(),
+            },
+        };
+        let pg_drop = generate_ddl_statement(DatabaseEngine::Postgres, &drop_idx_req).unwrap();
+        assert_eq!(pg_drop, r#"DROP INDEX "public"."idx_users_email_tenant";"#);
+
+        let mysql_drop = generate_ddl_statement(DatabaseEngine::Mysql, &drop_idx_req).unwrap();
+        assert_eq!(
+            mysql_drop,
+            r#"DROP INDEX `idx_users_email_tenant` ON `public`.`users`;"#
+        );
+    }
+
+    #[test]
+    fn test_sql_where_clause_operators() {
+        let filters = vec![
+            FilterRule {
+                field: "name".into(),
+                operator: FilterOperator::StartsWith,
+                value: "Ada".into(),
+                enabled: true,
+            },
+            FilterRule {
+                field: "email".into(),
+                operator: FilterOperator::Contains,
+                value: "docpine".into(),
+                enabled: true,
+            },
+            FilterRule {
+                field: "deleted_at".into(),
+                operator: FilterOperator::IsNull,
+                value: String::new(),
+                enabled: true,
+            },
+            FilterRule {
+                field: "status".into(),
+                operator: FilterOperator::In,
+                value: "active, pending".into(),
+                enabled: true,
+            },
+            FilterRule {
+                field: "disabled".into(),
+                operator: FilterOperator::Eq,
+                value: "ignored".into(),
+                enabled: false, // Disabled rule should be skipped
+            },
+        ];
+
+        let where_clause = build_where_clause(DatabaseEngine::Postgres, &filters, None);
+        assert!(where_clause.contains(r#""name"::text ILIKE 'Ada%'"#));
+        assert!(where_clause.contains(r#""email"::text ILIKE '%docpine%'"#));
+        assert!(where_clause.contains(r#""deleted_at" IS NULL"#));
+        assert!(where_clause.contains(r#""status" IN ('active', 'pending')"#));
+        assert!(!where_clause.contains("disabled"));
+    }
+
+    #[test]
+    fn test_build_select_page_queries() {
+        let req = DataPageRequest {
+            database: "app".into(),
+            schema: Some("public".into()),
+            container: "orders".into(),
+            filters: vec![FilterRule {
+                field: "total".into(),
+                operator: FilterOperator::Gt,
+                value: "100".into(),
+                enabled: true,
+            }],
+            raw_filter: None,
+            sorts: vec![SortRule {
+                field: "created_at".into(),
+                descending: true,
+            }],
+            page: 2,
+            page_size: 25,
+        };
+
+        let (select_sql, count_sql) = build_select_page_queries(DatabaseEngine::Postgres, &req);
+        assert_eq!(
+            select_sql,
+            r#"SELECT * FROM "public"."orders" WHERE "total" > 100 ORDER BY "created_at" DESC LIMIT 25 OFFSET 25"#
+        );
+        assert_eq!(
+            count_sql,
+            r#"SELECT COUNT(*) FROM "public"."orders" WHERE "total" > 100"#
+        );
+    }
 }

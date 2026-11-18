@@ -157,3 +157,116 @@ pub struct ParsedConnectionUri {
     pub ssl_enabled: bool,
     pub raw_uri: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_database_engine_default_ports_and_nosql() {
+        assert_eq!(DatabaseEngine::Postgres.default_port(), 5432);
+        assert_eq!(DatabaseEngine::Mysql.default_port(), 3306);
+        assert_eq!(DatabaseEngine::Mongodb.default_port(), 27017);
+
+        assert!(!DatabaseEngine::Postgres.is_nosql());
+        assert!(!DatabaseEngine::Mysql.is_nosql());
+        assert!(DatabaseEngine::Mongodb.is_nosql());
+    }
+
+    #[test]
+    fn test_models_default_values() {
+        assert_eq!(EnvironmentTag::default(), EnvironmentTag::Development);
+        assert_eq!(SafetyMode::default(), SafetyMode::Safe);
+        assert_eq!(CommitMode::default(), CommitMode::Staged);
+        assert_eq!(SshAuthMethod::default(), SshAuthMethod::Password);
+    }
+
+    #[test]
+    fn test_workspace_config_serde_roundtrip() {
+        let ws = WorkspaceConfig {
+            id: "ws-1".to_string(),
+            name: "Production PG".to_string(),
+            engine: DatabaseEngine::Postgres,
+            host: "postgres.internal".to_string(),
+            port: 5432,
+            username: "app_user".to_string(),
+            default_database: "billing".to_string(),
+            connection_uri: Some("postgres://app_user@postgres.internal:5432/billing".to_string()),
+            environment: EnvironmentTag::Production,
+            accent_color: "#ef4444".to_string(),
+            safety_mode: SafetyMode::ReadOnly,
+            commit_mode: CommitMode::Staged,
+            ssl: SslConfig {
+                enabled: true,
+                reject_unauthorized: true,
+                ca_cert_path: Some("/etc/ssl/ca.pem".to_string()),
+            },
+            ssh: SshTunnelConfig {
+                enabled: false,
+                host: String::new(),
+                port: 22,
+                username: String::new(),
+                auth_method: SshAuthMethod::Password,
+                private_key_path: None,
+            },
+            created_at: "2026-11-17T10:00:00Z".to_string(),
+            last_opened_at: Some("2026-11-17T11:00:00Z".to_string()),
+        };
+
+        let json = serde_json::to_string(&ws).expect("serialize workspace config");
+        assert!(json.contains("\"defaultDatabase\":\"billing\""));
+        assert!(json.contains("\"safetyMode\":\"read_only\""));
+        assert!(json.contains("\"commitMode\":\"staged\""));
+        assert!(json.contains("\"environment\":\"production\""));
+
+        let deserialized: WorkspaceConfig =
+            serde_json::from_str(&json).expect("deserialize workspace config");
+        assert_eq!(deserialized, ws);
+    }
+
+    #[test]
+    fn test_save_workspace_input_serde() {
+        let input_json = r##"{
+            "id": null,
+            "name": "Local Mongo",
+            "engine": "mongodb",
+            "host": "localhost",
+            "port": 27017,
+            "username": "root",
+            "defaultDatabase": "analytics",
+            "connectionUri": null,
+            "environment": "local",
+            "accentColor": "#10b981",
+            "safetyMode": "standard",
+            "commitMode": "immediate",
+            "ssl": {
+                "enabled": false,
+                "rejectUnauthorized": false,
+                "caCertPath": null
+            },
+            "ssh": {
+                "enabled": false,
+                "host": "",
+                "port": 22,
+                "username": "",
+                "authMethod": "password",
+                "privateKeyPath": null
+            },
+            "credentials": {
+                "dbPassword": "secret_password",
+                "sshPassword": null,
+                "sshPassphrase": null
+            }
+        }"##;
+
+        let parsed: SaveWorkspaceInput =
+            serde_json::from_str(input_json).expect("deserialize SaveWorkspaceInput");
+        assert_eq!(parsed.engine, DatabaseEngine::Mongodb);
+        assert_eq!(parsed.safety_mode, SafetyMode::Standard);
+        assert_eq!(parsed.commit_mode, CommitMode::Immediate);
+        assert_eq!(
+            parsed.credentials.db_password.as_deref(),
+            Some("secret_password")
+        );
+    }
+}

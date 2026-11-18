@@ -194,4 +194,42 @@ mod tests {
         assert_eq!(parsed.database, "docpine_dev");
         assert!(parsed.ssl_enabled);
     }
+
+    #[test]
+    fn test_parse_uri_with_special_character_passwords() {
+        // Password with @ (%40), # (%23), and : (%3A) -> "p@ss#w:rd"
+        let raw = "postgresql://db_user:p%40ss%23w%3Ard@pg.example.com:5432/my_db";
+        let parsed = parse_connection_uri(raw).expect("should decode special chars");
+        assert_eq!(parsed.password.as_deref(), Some("p@ss#w:rd"));
+        assert_eq!(parsed.username, "db_user");
+        assert_eq!(parsed.database, "my_db");
+    }
+
+    #[test]
+    fn test_parse_uri_unsupported_scheme() {
+        let res = parse_connection_uri("redis://127.0.0.1:6379");
+        assert!(matches!(res, Err(AppError::Validation(_))));
+
+        let res = parse_connection_uri("sqlite:///var/data/db.sqlite");
+        assert!(matches!(res, Err(AppError::Validation(_))));
+    }
+
+    #[test]
+    fn test_parse_uri_missing_host() {
+        let res = parse_connection_uri("postgresql://");
+        assert!(matches!(res, Err(AppError::Validation(_))));
+    }
+
+    #[test]
+    fn test_parse_standard_mongodb_uri() {
+        let raw = "mongodb://mongo_admin:s3cret@127.0.0.1:27018/app_data?authSource=admin&tls=true";
+        let parsed = parse_connection_uri(raw).expect("should parse standard mongo URI");
+        assert_eq!(parsed.engine, DatabaseEngine::Mongodb);
+        assert_eq!(parsed.host, "127.0.0.1");
+        assert_eq!(parsed.port, 27018);
+        assert_eq!(parsed.username, "mongo_admin");
+        assert_eq!(parsed.password.as_deref(), Some("s3cret"));
+        assert_eq!(parsed.database, "app_data");
+        assert!(parsed.ssl_enabled);
+    }
 }

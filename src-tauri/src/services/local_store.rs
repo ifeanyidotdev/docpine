@@ -718,4 +718,71 @@ mod tests {
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].execution_ms, 14);
     }
+
+    #[test]
+    fn test_touch_workspace_opened() {
+        let store = LocalStore::new_in_memory().unwrap();
+        let ws = store
+            .save_workspace(SaveWorkspaceInput {
+                id: None,
+                name: "Test WS".into(),
+                engine: DatabaseEngine::Postgres,
+                host: "localhost".into(),
+                port: 5432,
+                username: "user".into(),
+                default_database: "db".into(),
+                connection_uri: None,
+                environment: EnvironmentTag::Local,
+                accent_color: "#10b981".into(),
+                safety_mode: SafetyMode::Standard,
+                commit_mode: CommitMode::Immediate,
+                ssl: SslConfig::default(),
+                ssh: SshTunnelConfig::default(),
+                credentials: WorkspaceCredentials::default(),
+            })
+            .unwrap();
+
+        assert_eq!(ws.last_opened_at, None);
+
+        store.touch_workspace_opened(&ws.id).unwrap();
+
+        let touched = store.get_workspace(&ws.id).unwrap();
+        assert!(touched.last_opened_at.is_some());
+    }
+
+    #[test]
+    fn test_update_saved_query_and_delete() {
+        let store = LocalStore::new_in_memory().unwrap();
+        let ws_id = "ws-query-test";
+
+        let created = store
+            .save_query(
+                None,
+                ws_id,
+                "Old Title",
+                None,
+                "main",
+                "SELECT 1;",
+            )
+            .unwrap();
+
+        let updated = store
+            .save_query(
+                Some(created.id.clone()),
+                ws_id,
+                "New Title",
+                Some("Reports".into()),
+                "main",
+                "SELECT 100;",
+            )
+            .unwrap();
+
+        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.title, "New Title");
+        assert_eq!(updated.query_text, "SELECT 100;");
+
+        store.delete_saved_query(&created.id).unwrap();
+        let remaining = store.list_saved_queries(ws_id).unwrap();
+        assert!(remaining.is_empty());
+    }
 }

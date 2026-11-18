@@ -78,8 +78,27 @@ pub fn check_mutation_permission(
 }
 
 fn strip_comments_and_normalize(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for line in input.lines() {
+    let mut without_blocks = String::with_capacity(input.len());
+    let mut in_block = false;
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if !in_block && i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '*' {
+            in_block = true;
+            i += 2;
+        } else if in_block && i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '/' {
+            in_block = false;
+            i += 2;
+        } else if !in_block {
+            without_blocks.push(chars[i]);
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    let mut out = String::with_capacity(without_blocks.len());
+    for line in without_blocks.lines() {
         let trimmed = line.trim();
         if !trimmed.starts_with("--") && !trimmed.starts_with("//") {
             out.push_str(trimmed);
@@ -232,5 +251,91 @@ mod tests {
             false,
         );
         assert!(matches!(res, Err(AppError::ConfirmationRequired(_))));
+    }
+
+    #[test]
+    fn test_unfiltered_update_requires_confirmation_in_safe_mode() {
+        let unfiltered_update = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::Safe,
+            "UPDATE customers SET tier = 'standard';",
+            false,
+        );
+        assert!(matches!(
+            unfiltered_update,
+            Err(AppError::ConfirmationRequired(_))
+        ));
+
+        let confirmed_update = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::Safe,
+            "UPDATE customers SET tier = 'standard';",
+            true,
+        );
+        assert!(confirmed_update.is_ok());
+
+        let filtered_update = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::Safe,
+            "UPDATE customers SET tier = 'standard' WHERE id = 10;",
+            false,
+        );
+        assert!(filtered_update.is_ok());
+    }
+
+    #[test]
+    fn test_truncate_and_alter_handling() {
+        let truncate_safe = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::Safe,
+            "TRUNCATE TABLE logs;",
+            false,
+        );
+        assert!(matches!(
+            truncate_safe,
+            Err(AppError::ConfirmationRequired(_))
+        ));
+
+        let truncate_readonly = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::ReadOnly,
+            "TRUNCATE TABLE logs;",
+            false,
+        );
+        assert!(matches!(truncate_readonly, Err(AppError::SafetyBlocked(_))));
+    }
+
+    #[test]
+    fn test_comments_and_case_insensitivity() {
+        let comment_query = "-- fetch all rows\nSELECT * FROM products;";
+        let res = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::ReadOnly,
+            comment_query,
+            false,
+        );
+        assert!(res.is_ok());
+        assert!(!res.unwrap().is_mutation);
+
+        let block_comment_mutation = "/* temporary update */ update accounts set balance = 0 where id = 5;";
+        let res = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::ReadOnly,
+            block_comment_mutation,
+            false,
+        );
+        assert!(matches!(res, Err(AppError::SafetyBlocked(_))));
+    }
+
+    #[test]
+    fn test_standard_mode_allows_mutations_without_confirmation() {
+        let res = inspect_query_safety(
+            DatabaseEngine::Postgres,
+            SafetyMode::Standard,
+            "DROP TABLE old_records;",
+            false,
+        );
+        assert!(res.is_ok());
+        assert!(res.unwrap().is_mutation);
     }
 }
