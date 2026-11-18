@@ -13,6 +13,8 @@ pub fn run() {
     let pools = WorkspacePoolManager::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState { store, pools })
         .invoke_handler(tauri::generate_handler![
             commands::parse_uri,

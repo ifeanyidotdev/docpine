@@ -49,7 +49,7 @@ export function parseAppError(err: unknown): FormattedAppError {
   return { code: "unknown", message: String(err) };
 }
 
-function isTauriRuntime(): boolean {
+export function isTauriRuntime(): boolean {
   return (
     typeof window !== "undefined" &&
     ("__TAURI_INTERNALS__" in window || "__TAURI__" in window)
