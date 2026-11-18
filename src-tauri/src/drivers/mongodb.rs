@@ -699,6 +699,16 @@ impl WorkspaceDriver for MongoDriver {
         })
     }
 
+    async fn create_schema(
+        &self,
+        _database: &str,
+        _schema: &str,
+    ) -> AppResult<QueryExecutionResult> {
+        Err(AppError::Validation(
+            "MongoDB does not use relational schemas. Create collections directly instead.".into(),
+        ))
+    }
+
     async fn execute_raw_query(
         &self,
         database: &str,

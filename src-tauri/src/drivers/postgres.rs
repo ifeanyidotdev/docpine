@@ -1,6 +1,6 @@
 use crate::drivers::sql_helpers::{
     bounded_count_sql, build_select_page_queries, generate_ddl_statement,
-    generate_mutation_statements, EXACT_COUNT_CAP,
+    generate_mutation_statements, quote_ident, EXACT_COUNT_CAP,
 };
 use crate::drivers::WorkspaceDriver;
 use crate::error::{AppError, AppResult};
@@ -579,6 +579,22 @@ impl WorkspaceDriver for PostgresDriver {
     ) -> AppResult<QueryExecutionResult> {
         let ddl = self.preview_schema_change(change).await?;
         self.execute_raw_query(&change.database, &ddl).await
+    }
+
+    async fn create_schema(
+        &self,
+        database: &str,
+        schema: &str,
+    ) -> AppResult<QueryExecutionResult> {
+        let trimmed = schema.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::Validation("Schema name cannot be empty".into()));
+        }
+        let ddl = format!(
+            "CREATE SCHEMA IF NOT EXISTS {};",
+            quote_ident(DatabaseEngine::Postgres, trimmed)
+        );
+        self.execute_raw_query(database, &ddl).await
     }
 
     async fn execute_raw_query(

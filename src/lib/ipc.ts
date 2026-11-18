@@ -292,6 +292,18 @@ export const ipc = {
     });
   },
 
+  async createSchema(
+    workspaceId: string,
+    database: string,
+    schema: string
+  ): Promise<QueryExecutionResult> {
+    return invoke<QueryExecutionResult>("create_schema", {
+      workspaceId,
+      database,
+      schema,
+    });
+  },
+
   async executeQuery(
     workspaceId: string,
     database: string,

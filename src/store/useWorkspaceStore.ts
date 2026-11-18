@@ -84,6 +84,11 @@ interface WorkspaceStoreState {
   disconnectFromWorkspace: (workspaceId: string) => Promise<void>;
   switchDatabase: (workspaceId: string, database: string) => Promise<void>;
   refreshSchema: (workspaceId: string, database?: string) => Promise<void>;
+  createSchema: (
+    workspaceId: string,
+    database: string,
+    schema: string
+  ) => Promise<void>;
   updateContainerRowCount: (
     workspaceId: string,
     database: string,
@@ -483,6 +488,26 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         title: "Schema introspection error",
         message: parsed.message,
       });
+    }
+  },
+
+  createSchema: async (workspaceId, database, schema) => {
+    try {
+      await ipc.createSchema(workspaceId, database, schema);
+      await get().refreshSchema(workspaceId, database);
+      get().pushToast({
+        kind: "success",
+        title: "Schema created",
+        message: `Created schema "${schema}" in ${database}`,
+      });
+    } catch (err) {
+      const parsed = parseAppError(err);
+      get().pushToast({
+        kind: "error",
+        title: "Failed to create schema",
+        message: parsed.message,
+      });
+      throw err;
     }
   },
 

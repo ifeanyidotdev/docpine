@@ -33,6 +33,7 @@ pub fn run() {
             commands::apply_mutations,
             commands::preview_schema_change,
             commands::apply_schema_change,
+            commands::create_schema,
             commands::execute_query,
             commands::list_saved_queries,
             commands::save_workspace_query,

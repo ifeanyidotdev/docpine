@@ -28,6 +28,11 @@ pub trait WorkspaceDriver: Send + Sync {
         &self,
         change: &SchemaChangeRequest,
     ) -> AppResult<QueryExecutionResult>;
+    async fn create_schema(
+        &self,
+        database: &str,
+        schema: &str,
+    ) -> AppResult<QueryExecutionResult>;
     async fn execute_raw_query(
         &self,
         database: &str,

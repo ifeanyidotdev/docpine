@@ -267,6 +267,26 @@ pub async fn apply_schema_change(
 }
 
 #[tauri::command]
+pub async fn create_schema(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    database: String,
+    schema: String,
+) -> AppResult<QueryExecutionResult> {
+    let config = state.store.get_workspace(&workspace_id)?;
+    check_mutation_permission(
+        config.safety_mode,
+        false,
+        &format!("Create schema {}", schema),
+        true,
+    )?;
+
+    let creds = state.store.get_credentials(&workspace_id)?;
+    let driver = state.pools.get_or_connect(&config, &creds).await?;
+    driver.create_schema(&database, &schema).await
+}
+
+#[tauri::command]
 pub async fn execute_query(
     state: State<'_, AppState>,
     workspace_id: String,
