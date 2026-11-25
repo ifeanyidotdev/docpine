@@ -6,8 +6,9 @@ import { DataExplorerTab } from "../data/DataExplorerTab";
 import { QueryEditorTab } from "../query/QueryEditorTab";
 import { StructureDesignerTab } from "../structure/StructureDesignerTab";
 import { ErDiagramTab } from "../erd/ErDiagramTab";
+import { ObservabilityTab } from "../observability/ObservabilityTab";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
-import { Database, Terminal, Network } from "lucide-react";
+import { Database, Terminal, Network, Activity } from "lucide-react";
 import type { WorkspaceConfig } from "../../types/docpine";
 
 interface ActiveWorkspaceViewProps {
@@ -94,6 +95,19 @@ export function ActiveWorkspaceView({
                   <Network className="w-3.5 h-3.5 text-indigo-400" />
                   Open ER Diagram
                 </button>
+                <button
+                  onClick={() =>
+                    openTab(workspace.id, {
+                      kind: "monitor",
+                      title: `Monitor (${activeDb})`,
+                      database: activeDb,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-semibold text-xs"
+                >
+                  <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                  Open Monitor
+                </button>
               </div>
             </div>
           ) : (
@@ -120,6 +134,12 @@ export function ActiveWorkspaceView({
                     <QueryEditorTab workspace={workspace} tab={t} />
                   ) : t.kind === "structure" ? (
                     <StructureDesignerTab workspace={workspace} tab={t} />
+                  ) : t.kind === "monitor" ? (
+                    <ObservabilityTab
+                      workspace={workspace}
+                      tab={t}
+                      isActive={isVisible && isTabActive}
+                    />
                   ) : (
                     <ErDiagramTab workspace={workspace} tab={t} />
                   )}

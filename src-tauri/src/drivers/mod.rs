@@ -5,8 +5,9 @@ pub mod sql_helpers;
 
 use crate::error::AppResult;
 use crate::models::{
-    ContainerStructure, DataPageRequest, DataPageResult, MutationResult, QueryExecutionResult,
-    SchemaChangeRequest, SchemaOverview, StagedBatchRequest,
+    ContainerStructure, DataPageRequest, DataPageResult, MutationResult, PoolStats,
+    QueryExecutionResult, SchemaChangeRequest, SchemaOverview, ServerResourceMetrics,
+    StagedBatchRequest,
 };
 
 #[async_trait::async_trait]
@@ -38,4 +39,6 @@ pub trait WorkspaceDriver: Send + Sync {
         database: &str,
         query: &str,
     ) -> AppResult<QueryExecutionResult>;
+    async fn collect_metrics(&self, database: &str) -> AppResult<ServerResourceMetrics>;
+    async fn pool_stats(&self) -> PoolStats;
 }

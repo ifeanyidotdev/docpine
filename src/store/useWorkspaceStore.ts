@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { ipc, parseAppError } from "../lib/ipc";
+import { useObservabilityStore } from "./useObservabilityStore";
 import type {
   CommitMode,
   DataViewMode,
@@ -301,6 +302,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   deleteWorkspace: async (workspaceId) => {
     await ipc.deleteWorkspace(workspaceId);
+    useObservabilityStore.getState().clearWorkspaceSamples(workspaceId);
     const list = await ipc.listWorkspaces();
     set((s) => ({
       workspaces: list,
@@ -382,6 +384,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   disconnectFromWorkspace: async (workspaceId) => {
     await ipc.disconnectWorkspace(workspaceId);
+    useObservabilityStore.getState().clearWorkspaceSamples(workspaceId);
     set((s) => ({
       connectionStatus: {
         ...s.connectionStatus,
@@ -567,22 +570,22 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         return found.id;
       }
     }
-    if (finalTabInput.kind === "erd") {
-      const foundErd = existing.find(
-        (t) => t.kind === "erd" && t.database === db
+    if (finalTabInput.kind === "erd" || finalTabInput.kind === "monitor") {
+      const foundSingleton = existing.find(
+        (t) => t.kind === finalTabInput.kind && t.database === db
       );
-      if (foundErd) {
+      if (foundSingleton) {
         set((s) => ({
           activeTabIdByWorkspace: {
             ...s.activeTabIdByWorkspace,
-            [workspaceId]: foundErd.id,
+            [workspaceId]: foundSingleton.id,
           },
           activeTabIdByWorkspaceDb: {
             ...s.activeTabIdByWorkspaceDb,
-            [`${workspaceId}:${db}`]: foundErd.id,
+            [`${workspaceId}:${db}`]: foundSingleton.id,
           },
         }));
-        return foundErd.id;
+        return foundSingleton.id;
       }
     }
 

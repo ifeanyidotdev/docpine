@@ -5,9 +5,10 @@ use crate::drivers::sql_helpers::{
 use crate::drivers::WorkspaceDriver;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    ColumnMeta, ContainerKind, ContainerStructure, ContainerSummary, DataPageRequest,
-    DataPageResult, DatabaseEngine, ForeignKeyEdge, IndexDefinition, MutationResult,
-    QueryExecutionResult, SchemaChangeRequest, SchemaOverview, SslConfig, StagedBatchRequest,
+    ActiveQueryProcess, ColumnMeta, ContainerKind, ContainerResourceStat, ContainerStructure,
+    ContainerSummary, DataPageRequest, DataPageResult, DatabaseEngine, ForeignKeyEdge,
+    IndexDefinition, MutationResult, PoolStats, QueryExecutionResult, SchemaChangeRequest,
+    SchemaOverview, ServerResourceMetrics, SslConfig, StagedBatchRequest,
 };
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use native_tls::TlsConnector;
@@ -717,5 +718,210 @@ impl WorkspaceDriver for PostgresDriver {
             is_mutation,
             message: Some(format!("Command completed ({affected} row(s) affected)")),
         })
+    }
+
+    async fn collect_metrics(&self, database: &str) -> AppResult<ServerResourceMetrics> {
+        let client = self.open_client(database).await?;
+        let mut metrics = ServerResourceMetrics::default();
+
+        // 1. Server version, uptime, max_connections, shared_buffers
+        match client
+            .query_one(
+                r#"
+                SELECT
+                    split_part(version(), ' on ', 1) AS ver,
+                    GREATEST(0, EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time())))::bigint AS uptime_sec,
+                    current_setting('max_connections')::bigint AS max_conn,
+                    pg_size_bytes(current_setting('shared_buffers'))::bigint AS shared_buf_bytes
+                "#,
+                &[],
+            )
+            .await
+        {
+            Ok(row) => {
+                metrics.version = row.try_get::<_, String>(0).ok();
+                metrics.uptime_seconds = row.try_get::<_, i64>(1).ok().map(|v| v.max(0) as u64);
+                metrics.max_connections = row.try_get::<_, i64>(2).ok().map(|v| v.max(0) as u64);
+                metrics.memory_mb = row
+                    .try_get::<_, i64>(3)
+                    .ok()
+                    .map(|b| (b.max(0) as f64) / (1024.0 * 1024.0));
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not read server info: {e}"));
+            }
+        }
+
+        // 2. Database size, cache hit ratio, and transaction/tuple counters
+        match client
+            .query_one(
+                r#"
+                SELECT
+                    pg_database_size(current_database())::bigint AS db_size,
+                    (COALESCE(xact_commit, 0) + COALESCE(xact_rollback, 0))::bigint AS total_xacts,
+                    COALESCE(tup_fetched, 0)::bigint AS tup_reads,
+                    (COALESCE(tup_inserted, 0) + COALESCE(tup_updated, 0) + COALESCE(tup_deleted, 0))::bigint AS tup_writes,
+                    CASE
+                        WHEN (COALESCE(blks_hit, 0) + COALESCE(blks_read, 0)) > 0
+                        THEN (blks_hit::double precision / (blks_hit + blks_read)::double precision) * 100.0
+                        ELSE NULL
+                    END AS cache_hit_pct
+                FROM pg_stat_database
+                WHERE datname = current_database()
+                "#,
+                &[],
+            )
+            .await
+        {
+            Ok(row) => {
+                metrics.database_size_bytes =
+                    row.try_get::<_, i64>(0).ok().map(|v| v.max(0) as u64);
+                metrics.total_operations = row.try_get::<_, i64>(1).ok().map(|v| v.max(0) as u64);
+                metrics.total_reads = row.try_get::<_, i64>(2).ok().map(|v| v.max(0) as u64);
+                metrics.total_writes = row.try_get::<_, i64>(3).ok().map(|v| v.max(0) as u64);
+                metrics.cache_hit_ratio = row.try_get::<_, Option<f64>>(4).ok().flatten();
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not read pg_stat_database: {e}"));
+            }
+        }
+
+        // 3. Connection counts from pg_stat_activity
+        match client
+            .query_one(
+                r#"
+                SELECT
+                    COUNT(*) FILTER (WHERE state = 'active')::bigint AS active_cnt,
+                    COUNT(*) FILTER (WHERE state IS DISTINCT FROM 'active')::bigint AS idle_cnt
+                FROM pg_stat_activity
+                "#,
+                &[],
+            )
+            .await
+        {
+            Ok(row) => {
+                metrics.active_connections =
+                    row.try_get::<_, i64>(0).ok().map(|v| v.max(0) as u64);
+                metrics.idle_connections = row.try_get::<_, i64>(1).ok().map(|v| v.max(0) as u64);
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not read connection counts: {e}"));
+            }
+        }
+
+        // 4. Currently active queries (excluding this monitor session)
+        match client
+            .query(
+                r#"
+                SELECT
+                    pid::text,
+                    usename::text,
+                    datname::text,
+                    state::text,
+                    GREATEST(0, EXTRACT(EPOCH FROM (now() - COALESCE(query_start, backend_start))) * 1000)::bigint AS duration_ms,
+                    COALESCE(LEFT(query, 500), '') AS query_text,
+                    wait_event::text
+                FROM pg_stat_activity
+                WHERE pid <> pg_backend_pid()
+                  AND state IS NOT NULL
+                  AND state <> 'idle'
+                ORDER BY duration_ms DESC
+                LIMIT 25
+                "#,
+                &[],
+            )
+            .await
+        {
+            Ok(rows) => {
+                metrics.active_queries = rows
+                    .into_iter()
+                    .map(|r| ActiveQueryProcess {
+                        id: r.get::<_, String>(0),
+                        user: r.get::<_, Option<String>>(1),
+                        database: r.get::<_, Option<String>>(2),
+                        state: r.get::<_, Option<String>>(3),
+                        duration_ms: r.get::<_, i64>(4).max(0) as u64,
+                        query: r.get::<_, String>(5),
+                        wait_event: r.get::<_, Option<String>>(6),
+                    })
+                    .collect();
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not inspect active queries: {e}"));
+            }
+        }
+
+        // 5. Top 10 tables by total storage size
+        match client
+            .query(
+                r#"
+                SELECT
+                    c.relname::text,
+                    n.nspname::text,
+                    pg_total_relation_size(c.oid)::bigint AS total_bytes,
+                    pg_relation_size(c.oid)::bigint AS data_bytes,
+                    pg_indexes_size(c.oid)::bigint AS index_bytes,
+                    GREATEST(0, c.reltuples)::bigint AS est_rows
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p')
+                  AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                ORDER BY total_bytes DESC
+                LIMIT 10
+                "#,
+                &[],
+            )
+            .await
+        {
+            Ok(rows) => {
+                metrics.top_containers = rows
+                    .into_iter()
+                    .map(|r| ContainerResourceStat {
+                        name: r.get::<_, String>(0),
+                        schema: Some(r.get::<_, String>(1)),
+                        total_size_bytes: r.get::<_, i64>(2).max(0) as u64,
+                        data_size_bytes: r.get::<_, i64>(3).max(0) as u64,
+                        index_size_bytes: r.get::<_, i64>(4).max(0) as u64,
+                        estimated_rows: Some(r.get::<_, i64>(5).max(0) as u64),
+                    })
+                    .collect();
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not inspect table sizes: {e}"));
+            }
+        }
+
+        Ok(metrics)
+    }
+
+    async fn pool_stats(&self) -> PoolStats {
+        let pools = self.pools.read().await;
+        let mut active = 0u32;
+        let mut idle = 0u32;
+        let mut max = 0u32;
+        for pool in pools.values() {
+            let status = pool.status();
+            let avail = status.available.max(0) as u32;
+            let size = status.size as u32;
+            active += size.saturating_sub(avail);
+            idle += avail;
+            max += status.max_size as u32;
+        }
+        PoolStats {
+            active,
+            idle,
+            max,
+            tracked: true,
+        }
     }
 }

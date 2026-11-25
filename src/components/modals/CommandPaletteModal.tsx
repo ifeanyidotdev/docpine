@@ -5,6 +5,7 @@ import {
   Table2,
   Terminal,
   Network,
+  Activity,
   Plus,
   GitCommitHorizontal,
   X,
@@ -75,6 +76,20 @@ export function CommandPaletteModal() {
         openTab(activeWs.id, {
           kind: "erd",
           title: `ER Diagram (${activeDb})`,
+          database: activeDb,
+        });
+      },
+    });
+
+    actions.push({
+      id: "open-monitor",
+      label: `Open Resource Monitor & Observability (${activeDb})`,
+      category: "Workspace Action",
+      icon: <Activity className="w-4 h-4 text-cyan-400" />,
+      run: () => {
+        openTab(activeWs.id, {
+          kind: "monitor",
+          title: `Monitor (${activeDb})`,
           database: activeDb,
         });
       },

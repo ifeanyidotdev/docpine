@@ -5,9 +5,10 @@ use crate::drivers::sql_helpers::{
 use crate::drivers::WorkspaceDriver;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    ColumnMeta, ContainerKind, ContainerStructure, ContainerSummary, DataPageRequest,
-    DataPageResult, DatabaseEngine, ForeignKeyEdge, IndexDefinition, MutationResult,
-    QueryExecutionResult, SchemaChangeRequest, SchemaOverview, SslConfig, StagedBatchRequest,
+    ActiveQueryProcess, ColumnMeta, ContainerKind, ContainerResourceStat, ContainerStructure,
+    ContainerSummary, DataPageRequest, DataPageResult, DatabaseEngine, ForeignKeyEdge,
+    IndexDefinition, MutationResult, PoolStats, QueryExecutionResult, SchemaChangeRequest,
+    SchemaOverview, ServerResourceMetrics, SslConfig, StagedBatchRequest,
 };
 use mysql_async::prelude::*;
 use mysql_async::{Conn, OptsBuilder, Pool, Row, SslOpts, Value as MyValue};
@@ -545,6 +546,254 @@ impl WorkspaceDriver for MySqlDriver {
                 format!("Returned {} row(s)", rows.len())
             }),
         })
+    }
+
+    async fn collect_metrics(&self, database: &str) -> AppResult<ServerResourceMetrics> {
+        let mut conn = self.get_conn(database).await?;
+        let mut metrics = ServerResourceMetrics::default();
+
+        // 1. Server version & max_connections
+        if let Ok(Some(ver)) = conn.query_first::<String, _>("SELECT VERSION()").await {
+            metrics.version = Some(format!("MySQL {ver}"));
+        }
+        if let Ok(rows) = conn
+            .query::<Row, _>("SHOW VARIABLES LIKE 'max_connections'")
+            .await
+        {
+            if let Some(row) = rows.into_iter().next() {
+                let raw = row
+                    .get_opt::<MyValue, usize>(1)
+                    .and_then(|r| r.ok())
+                    .map(mysql_value_to_json);
+                if let Some(v) = raw {
+                    metrics.max_connections = v
+                        .as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()));
+                }
+            }
+        }
+
+        // 2. Global status counters
+        match conn
+            .query::<Row, _>(
+                "SHOW GLOBAL STATUS WHERE Variable_name IN (
+                    'Threads_connected', 'Threads_running', 'Uptime', 'Questions',
+                    'Com_select', 'Com_insert', 'Com_update', 'Com_delete',
+                    'Innodb_buffer_pool_read_requests', 'Innodb_buffer_pool_reads',
+                    'Innodb_buffer_pool_bytes_data'
+                )",
+            )
+            .await
+        {
+            Ok(rows) => {
+                let mut map: HashMap<String, u64> = HashMap::new();
+                for row in rows {
+                    let k = row
+                        .get_opt::<MyValue, usize>(0)
+                        .and_then(|r| r.ok())
+                        .map(mysql_value_to_json)
+                        .and_then(|v| v.as_str().map(|s| s.to_string()));
+                    let val = row
+                        .get_opt::<MyValue, usize>(1)
+                        .and_then(|r| r.ok())
+                        .map(mysql_value_to_json)
+                        .and_then(|v| {
+                            v.as_u64()
+                                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                        });
+                    if let (Some(key), Some(num)) = (k, val) {
+                        map.insert(key, num);
+                    }
+                }
+
+                let connected = map.get("Threads_connected").copied();
+                let running = map.get("Threads_running").copied();
+                metrics.active_connections = running;
+                if let (Some(c), Some(r)) = (connected, running) {
+                    metrics.idle_connections = Some(c.saturating_sub(r));
+                }
+                metrics.uptime_seconds = map.get("Uptime").copied();
+                metrics.total_operations = map.get("Questions").copied();
+                metrics.total_reads = map.get("Com_select").copied();
+                let writes = map.get("Com_insert").copied().unwrap_or(0)
+                    + map.get("Com_update").copied().unwrap_or(0)
+                    + map.get("Com_delete").copied().unwrap_or(0);
+                if map.contains_key("Com_insert")
+                    || map.contains_key("Com_update")
+                    || map.contains_key("Com_delete")
+                {
+                    metrics.total_writes = Some(writes);
+                }
+
+                if let (Some(&reqs), Some(&reads)) = (
+                    map.get("Innodb_buffer_pool_read_requests"),
+                    map.get("Innodb_buffer_pool_reads"),
+                ) {
+                    if reqs > 0 {
+                        let hits = reqs.saturating_sub(reads);
+                        metrics.cache_hit_ratio = Some((hits as f64 / reqs as f64) * 100.0);
+                    }
+                }
+
+                if let Some(&buf_bytes) = map.get("Innodb_buffer_pool_bytes_data") {
+                    metrics.memory_mb = Some(buf_bytes as f64 / (1024.0 * 1024.0));
+                }
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not read SHOW GLOBAL STATUS: {e}"));
+            }
+        }
+
+        // 3. Active queries from information_schema.PROCESSLIST
+        match conn
+            .query::<Row, _>(
+                "SELECT CAST(ID AS CHAR), USER, DB, STATE, TIME, LEFT(IFNULL(INFO, ''), 500)
+                 FROM information_schema.PROCESSLIST
+                 WHERE COMMAND <> 'Sleep' AND ID <> CONNECTION_ID()
+                 ORDER BY TIME DESC
+                 LIMIT 25",
+            )
+            .await
+        {
+            Ok(rows) => {
+                metrics.active_queries = rows
+                    .into_iter()
+                    .map(|row| {
+                        let get_str = |idx: usize| -> Option<String> {
+                            row.get_opt::<MyValue, usize>(idx)
+                                .and_then(|r| r.ok())
+                                .map(mysql_value_to_json)
+                                .and_then(|v| match v {
+                                    Value::Null => None,
+                                    Value::String(s) => Some(s),
+                                    other => Some(other.to_string()),
+                                })
+                        };
+                        let secs = row
+                            .get_opt::<MyValue, usize>(4)
+                            .and_then(|r| r.ok())
+                            .map(mysql_value_to_json)
+                            .and_then(|v| {
+                                v.as_u64()
+                                    .or_else(|| v.as_i64().map(|i| i.max(0) as u64))
+                                    .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                            })
+                            .unwrap_or(0);
+                        ActiveQueryProcess {
+                            id: get_str(0).unwrap_or_default(),
+                            user: get_str(1),
+                            database: get_str(2),
+                            state: get_str(3),
+                            duration_ms: secs * 1000,
+                            query: get_str(5).unwrap_or_default(),
+                            wait_event: None,
+                        }
+                    })
+                    .collect();
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not read PROCESSLIST: {e}"));
+            }
+        }
+
+        // 4. Database storage size & top 10 tables
+        let target_db = if database.trim().is_empty() {
+            self.default_database.trim()
+        } else {
+            database.trim()
+        };
+
+        if !target_db.is_empty() {
+            let escaped_db = target_db.replace('\'', "''");
+            if let Ok(rows) = conn
+                .query::<Row, _>(format!(
+                    "SELECT CAST(COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) AS UNSIGNED)
+                     FROM information_schema.TABLES
+                     WHERE TABLE_SCHEMA = '{escaped_db}'"
+                ))
+                .await
+            {
+                if let Some(row) = rows.into_iter().next() {
+                    metrics.database_size_bytes = row
+                        .get_opt::<MyValue, usize>(0)
+                        .and_then(|r| r.ok())
+                        .map(mysql_value_to_json)
+                        .and_then(|v| {
+                            v.as_u64()
+                                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                        });
+                }
+            }
+
+            match conn
+                .query::<Row, _>(format!(
+                    "SELECT TABLE_NAME,
+                            CAST(COALESCE(DATA_LENGTH, 0) AS UNSIGNED),
+                            CAST(COALESCE(INDEX_LENGTH, 0) AS UNSIGNED),
+                            CAST(COALESCE(TABLE_ROWS, 0) AS UNSIGNED)
+                     FROM information_schema.TABLES
+                     WHERE TABLE_SCHEMA = '{escaped_db}' AND TABLE_TYPE = 'BASE TABLE'
+                     ORDER BY (COALESCE(DATA_LENGTH, 0) + COALESCE(INDEX_LENGTH, 0)) DESC
+                     LIMIT 10"
+                ))
+                .await
+            {
+                Ok(rows) => {
+                    metrics.top_containers = rows
+                        .into_iter()
+                        .filter_map(|row| {
+                            let name = row
+                                .get_opt::<MyValue, usize>(0)
+                                .and_then(|r| r.ok())
+                                .map(mysql_value_to_json)
+                                .and_then(|v| v.as_str().map(|s| s.to_string()))?;
+                            let to_u64 = |idx: usize| -> u64 {
+                                row.get_opt::<MyValue, usize>(idx)
+                                    .and_then(|r| r.ok())
+                                    .map(mysql_value_to_json)
+                                    .and_then(|v| {
+                                        v.as_u64().or_else(|| {
+                                            v.as_str().and_then(|s| s.parse::<u64>().ok())
+                                        })
+                                    })
+                                    .unwrap_or(0)
+                            };
+                            let data_bytes = to_u64(1);
+                            let index_bytes = to_u64(2);
+                            let est_rows = to_u64(3);
+                            Some(ContainerResourceStat {
+                                name,
+                                schema: None,
+                                total_size_bytes: data_bytes + index_bytes,
+                                data_size_bytes: data_bytes,
+                                index_size_bytes: index_bytes,
+                                estimated_rows: Some(est_rows),
+                            })
+                        })
+                        .collect();
+                }
+                Err(e) => {
+                    metrics
+                        .warnings
+                        .push(format!("Could not inspect table sizes: {e}"));
+                }
+            }
+        }
+
+        Ok(metrics)
+    }
+
+    async fn pool_stats(&self) -> PoolStats {
+        PoolStats {
+            active: 0,
+            idle: 0,
+            max: 100,
+            tracked: false,
+        }
     }
 }
 

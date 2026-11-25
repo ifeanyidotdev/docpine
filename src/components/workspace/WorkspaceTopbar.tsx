@@ -1,5 +1,13 @@
-import React from "react";
-import { Terminal, Network, Settings2, Search } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Terminal,
+  Network,
+  Settings2,
+  Search,
+  Activity,
+  Plus,
+  ChevronDown,
+} from "lucide-react";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { engineFullName } from "../shell/WorkspaceRail";
 import type { WorkspaceConfig } from "../../types/docpine";
@@ -18,9 +26,38 @@ export function WorkspaceTopbar({ workspace }: WorkspaceTopbarProps) {
     setCommandPaletteOpen,
   } = useWorkspaceStore();
 
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+
   const status = connectionStatus[workspace.id] || "disconnected";
   const activeDb =
     activeDatabaseByWorkspace[workspace.id] || workspace.defaultDatabase;
+
+  useEffect(() => {
+    if (!newMenuOpen) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        newMenuRef.current &&
+        !newMenuRef.current.contains(e.target as Node)
+      ) {
+        setNewMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setNewMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [newMenuOpen]);
 
   const handleNewQueryTab = () => {
     const defaultQuery =
@@ -38,6 +75,7 @@ export function WorkspaceTopbar({ workspace }: WorkspaceTopbarProps) {
       database: activeDb,
       queryText: defaultQuery,
     });
+    setNewMenuOpen(false);
   };
 
   const handleOpenErd = () => {
@@ -46,6 +84,16 @@ export function WorkspaceTopbar({ workspace }: WorkspaceTopbarProps) {
       title: `ER Diagram (${activeDb})`,
       database: activeDb,
     });
+    setNewMenuOpen(false);
+  };
+
+  const handleOpenMonitor = () => {
+    openTab(workspace.id, {
+      kind: "monitor",
+      title: `Monitor (${activeDb})`,
+      database: activeDb,
+    });
+    setNewMenuOpen(false);
   };
 
   return (
@@ -87,21 +135,84 @@ export function WorkspaceTopbar({ workspace }: WorkspaceTopbarProps) {
 
       {/* Right: Quick Tools */}
       <div className="flex items-center gap-2 shrink-0">
-        <button
-          onClick={handleNewQueryTab}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium text-zinc-200 transition-colors"
-        >
-          <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-          <span>New Query</span>
-        </button>
+        {/* + New Dropdown */}
+        <div className="relative" ref={newMenuRef}>
+          <button
+            type="button"
+            onClick={() => setNewMenuOpen((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+              newMenuOpen
+                ? "bg-zinc-800 border-zinc-700 text-zinc-100"
+                : "bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-200"
+            }`}
+          >
+            <Plus className="w-3.5 h-3.5 text-emerald-400" />
+            <span>New</span>
+            <ChevronDown
+              className={`w-3 h-3 text-zinc-400 transition-transform duration-150 ${
+                newMenuOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
 
-        <button
-          onClick={handleOpenErd}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium text-zinc-200 transition-colors"
-        >
-          <Network className="w-3.5 h-3.5 text-indigo-400" />
-          <span>ER Diagram</span>
-        </button>
+          {newMenuOpen && (
+            <div className="absolute right-0 mt-1.5 w-52 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl py-1 z-40">
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                Open in Workspace
+              </div>
+
+              <button
+                type="button"
+                onClick={handleNewQueryTab}
+                className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <Terminal className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-100">
+                    New Query
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    {workspace.engine === "mongodb"
+                      ? "Open MQL query editor"
+                      : "Open SQL query editor"}
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenErd}
+                className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <Network className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-100">
+                    ER Diagram
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    Inspect schema relationships
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenMonitor}
+                className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <Activity className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-100">
+                    Monitor
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    Live resources & telemetry
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
 
         <button
           onClick={() => setCommandPaletteOpen(true)}

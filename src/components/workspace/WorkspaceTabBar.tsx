@@ -4,6 +4,7 @@ import {
   Terminal,
   SlidersHorizontal,
   Network,
+  Activity,
   X,
   Plus,
 } from "lucide-react";
@@ -51,6 +52,8 @@ export function WorkspaceTabBar({ workspaceId }: WorkspaceTabBarProps) {
         );
       case "erd":
         return <Network className="w-3.5 h-3.5 text-indigo-400 shrink-0" />;
+      case "monitor":
+        return <Activity className="w-3.5 h-3.5 text-cyan-400 shrink-0" />;
     }
   };
 

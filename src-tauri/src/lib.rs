@@ -45,6 +45,7 @@ pub fn run() {
             commands::get_workspace_tabs,
             commands::export_container_data,
             commands::import_container_data,
+            commands::get_workspace_observability,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Docpine tauri application");

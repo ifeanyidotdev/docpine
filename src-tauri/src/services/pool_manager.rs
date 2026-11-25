@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 struct ActiveConnection {
     driver: Arc<dyn WorkspaceDriver>,
-    _ssh_tunnel: Option<SshTunnelHandle>,
+    ssh_tunnel: Option<SshTunnelHandle>,
 }
 
 #[derive(Default)]
@@ -37,10 +37,20 @@ impl WorkspacePoolManager {
             config.id.clone(),
             ActiveConnection {
                 driver,
-                _ssh_tunnel: tunnel,
+                ssh_tunnel: tunnel,
             },
         );
         Ok(arc_driver)
+    }
+
+    pub async fn get_ssh_tunnel_info(&self, workspace_id: &str) -> (bool, Option<u16>) {
+        let map = self.connections.read().await;
+        if let Some(active) = map.get(workspace_id) {
+            if let Some(ref tunnel) = active.ssh_tunnel {
+                return (true, Some(tunnel.local_port));
+            }
+        }
+        (false, None)
     }
 
     pub async fn get_or_connect(
