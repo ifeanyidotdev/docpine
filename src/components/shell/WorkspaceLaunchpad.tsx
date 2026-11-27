@@ -25,6 +25,7 @@ import type {
   DatabaseEngine,
   EnvironmentTag,
   WorkspaceConfig,
+  WorkspaceFolder,
 } from "../../types/docpine";
 
 export function WorkspaceLaunchpad() {
@@ -51,6 +52,21 @@ export function WorkspaceLaunchpad() {
   const [moveMenuWorkspaceId, setMoveMenuWorkspaceId] = useState<string | null>(
     null
   );
+  const [confirmDeleteFolder, setConfirmDeleteFolder] =
+    useState<WorkspaceFolder | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState(false);
+
+  // Close delete confirmation on Escape
+  useEffect(() => {
+    if (!confirmDeleteFolder) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !deletingFolder) {
+        setConfirmDeleteFolder(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [confirmDeleteFolder, deletingFolder]);
 
   // Close move-to-folder menu on outside click or Escape
   useEffect(() => {
@@ -509,8 +525,8 @@ export function WorkspaceLaunchpad() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => void deleteFolder(folder.id)}
-                        title="Delete folder (keeps workspaces ungrouped)"
+                        onClick={() => setConfirmDeleteFolder(folder)}
+                        title="Delete folder"
                         className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -574,6 +590,76 @@ export function WorkspaceLaunchpad() {
           </div>
         )}
       </div>
+
+      {/* Delete Folder Confirmation Modal */}
+      {confirmDeleteFolder && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => {
+            if (!deletingFolder) setConfirmDeleteFolder(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl overflow-hidden"
+          >
+            <div className="p-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-zinc-100 truncate">
+                    Delete &ldquo;{confirmDeleteFolder.name}&rdquo;?
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    This action removes the folder only.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                {(() => {
+                  const count = workspaces.filter(
+                    (w) => w.folderId === confirmDeleteFolder.id
+                  ).length;
+                  if (count === 0) {
+                    return "This folder is empty and will be permanently removed.";
+                  }
+                  return `${count} workspace${count === 1 ? "" : "s"} inside will be kept safe and moved to Ungrouped.`;
+                })()}
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 bg-zinc-950/90 border-t border-zinc-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingFolder}
+                onClick={() => setConfirmDeleteFolder(null)}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingFolder}
+                onClick={async () => {
+                  setDeletingFolder(true);
+                  try {
+                    await deleteFolder(confirmDeleteFolder.id);
+                    setConfirmDeleteFolder(null);
+                  } finally {
+                    setDeletingFolder(false);
+                  }
+                }}
+                className="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {deletingFolder ? "Deleting..." : "Delete Folder"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
