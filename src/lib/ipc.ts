@@ -18,6 +18,7 @@ import type {
   StagedBatchRequest,
   WorkspaceConfig,
   WorkspaceCredentials,
+  WorkspaceObservabilitySnapshot,
 } from "../types/docpine";
 
 export interface FormattedAppError {
@@ -383,5 +384,41 @@ export const ipc = {
     rawContent: string;
   }): Promise<MutationResult> {
     return invoke<MutationResult>("import_container_data", params);
+  },
+
+  async getWorkspaceObservability(
+    workspaceId: string,
+    database: string
+  ): Promise<WorkspaceObservabilitySnapshot> {
+    if (!isTauriRuntime()) {
+      return {
+        collectedAt: new Date().toISOString(),
+        engine: "postgres",
+        database,
+        pingMs: 0,
+        server: {
+          activeQueries: [],
+          topContainers: [],
+          warnings: [
+            "Live database telemetry requires the native Docpine desktop runtime.",
+          ],
+        },
+        client: {
+          pool: { active: 0, idle: 0, max: 0, tracked: false },
+          sshTunnelActive: false,
+          sshLocalPort: null,
+          totalQueriesExecuted: 0,
+          failedQueriesCount: 0,
+          errorRatePct: 0,
+          avgQueryMs: 0,
+          p95QueryMs: 0,
+          recentLatencies: [],
+        },
+      };
+    }
+    return invoke<WorkspaceObservabilitySnapshot>(
+      "get_workspace_observability",
+      { workspaceId, database }
+    );
   },
 };

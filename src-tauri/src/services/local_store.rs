@@ -1,7 +1,8 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    CommitMode, DatabaseEngine, EnvironmentTag, QueryHistoryRecord, SafetyMode, SavedQueryRecord,
-    SaveWorkspaceInput, SshTunnelConfig, SslConfig, WorkspaceConfig, WorkspaceCredentials,
+    ClientWorkspaceTelemetry, CommitMode, DatabaseEngine, EnvironmentTag, PoolStats,
+    QueryHistoryRecord, QueryLatencyPoint, SafetyMode, SavedQueryRecord, SaveWorkspaceInput,
+    SshTunnelConfig, SslConfig, WorkspaceConfig, WorkspaceCredentials,
 };
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -581,6 +582,102 @@ impl LocalStore {
         Ok(tabs)
     }
 
+    pub fn get_workspace_query_telemetry(
+        &self,
+        workspace_id: &str,
+        recent_limit: u32,
+    ) -> AppResult<ClientWorkspaceTelemetry> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Storage("Failed to lock SQLite connection".into()))?;
+
+        let (total_count, failed_count, avg_ms): (i64, i64, f64) = conn.query_row(
+            r#"
+            SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN status <> 'success' THEN 1 ELSE 0 END), 0),
+                COALESCE(AVG(CAST(execution_ms AS REAL)), 0.0)
+            FROM query_history
+            WHERE workspace_id = ?1
+            "#,
+            params![workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT executed_at, execution_ms, status, database_name
+            FROM query_history
+            WHERE workspace_id = ?1
+            ORDER BY executed_at DESC
+            LIMIT ?2
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![workspace_id, recent_limit], |row| {
+            let ms: i64 = row.get(1)?;
+            Ok(QueryLatencyPoint {
+                executed_at: row.get(0)?,
+                execution_ms: ms.max(0) as u64,
+                status: row.get(2)?,
+                database: row.get(3)?,
+            })
+        })?;
+
+        let mut recent_latencies = Vec::new();
+        for r in rows {
+            recent_latencies.push(r?);
+        }
+        // Chronological order (oldest -> newest) for charts
+        recent_latencies.reverse();
+
+        // Compute P95 over recent window (up to 200 most recent executions)
+        let mut p95_stmt = conn.prepare(
+            r#"
+            SELECT execution_ms
+            FROM query_history
+            WHERE workspace_id = ?1
+            ORDER BY executed_at DESC
+            LIMIT 200
+            "#,
+        )?;
+        let mut latencies: Vec<u64> = p95_stmt
+            .query_map(params![workspace_id], |row| {
+                let ms: i64 = row.get(0)?;
+                Ok(ms.max(0) as u64)
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        latencies.sort_unstable();
+        let p95_query_ms = if latencies.is_empty() {
+            0
+        } else {
+            let idx = ((latencies.len() as f64) * 0.95).ceil() as usize;
+            latencies[idx.saturating_sub(1).min(latencies.len() - 1)]
+        };
+
+        let total_u64 = total_count.max(0) as u64;
+        let failed_u64 = failed_count.max(0) as u64;
+        let error_rate_pct = if total_u64 > 0 {
+            (failed_u64 as f64 / total_u64 as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(ClientWorkspaceTelemetry {
+            pool: PoolStats::default(),
+            ssh_tunnel_active: false,
+            ssh_local_port: None,
+            total_queries_executed: total_u64,
+            failed_queries_count: failed_u64,
+            error_rate_pct,
+            avg_query_ms: avg_ms,
+            p95_query_ms,
+            recent_latencies,
+        })
+    }
+
     fn map_workspace_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceConfig> {
         let engine_str: String = row.get(2)?;
         let port_i64: i64 = row.get(4)?;
@@ -784,5 +881,47 @@ mod tests {
         store.delete_saved_query(&created.id).unwrap();
         let remaining = store.list_saved_queries(ws_id).unwrap();
         assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_query_telemetry_isolation_and_stats() {
+        let store = LocalStore::new_in_memory().unwrap();
+
+        // Empty workspace returns zeroes
+        let empty = store.get_workspace_query_telemetry("ws-empty", 30).unwrap();
+        assert_eq!(empty.total_queries_executed, 0);
+        assert_eq!(empty.failed_queries_count, 0);
+        assert_eq!(empty.p95_query_ms, 0);
+        assert!(empty.recent_latencies.is_empty());
+
+        // Populate ws-a with 4 queries (1 error) and ws-b with 1 huge latency query
+        store
+            .record_query_history("ws-a", "app", "SELECT 1", "success", 10, Some(1))
+            .unwrap();
+        store
+            .record_query_history("ws-a", "app", "SELECT 2", "success", 20, Some(1))
+            .unwrap();
+        store
+            .record_query_history("ws-a", "app", "SELECT 3", "success", 30, Some(1))
+            .unwrap();
+        store
+            .record_query_history("ws-a", "app", "BAD SQL", "error", 100, None)
+            .unwrap();
+        store
+            .record_query_history("ws-b", "other", "SELECT 9", "success", 9999, Some(1))
+            .unwrap();
+
+        let telemetry_a = store.get_workspace_query_telemetry("ws-a", 30).unwrap();
+        assert_eq!(telemetry_a.total_queries_executed, 4);
+        assert_eq!(telemetry_a.failed_queries_count, 1);
+        assert!((telemetry_a.error_rate_pct - 25.0).abs() < 0.01);
+        assert!((telemetry_a.avg_query_ms - 40.0).abs() < 0.01);
+        assert_eq!(telemetry_a.p95_query_ms, 100);
+        assert_eq!(telemetry_a.recent_latencies.len(), 4);
+
+        // Verify workspace B is isolated
+        let telemetry_b = store.get_workspace_query_telemetry("ws-b", 30).unwrap();
+        assert_eq!(telemetry_b.total_queries_executed, 1);
+        assert_eq!(telemetry_b.p95_query_ms, 9999);
     }
 }

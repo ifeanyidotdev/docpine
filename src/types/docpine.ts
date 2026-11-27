@@ -261,7 +261,7 @@ export interface QueryHistoryRecord {
   executedAt: string;
 }
 
-export type WorkspaceTabKind = "data" | "query" | "structure" | "erd";
+export type WorkspaceTabKind = "data" | "query" | "structure" | "erd" | "monitor";
 
 export type DataViewMode = "table" | "tree" | "json";
 
@@ -286,3 +286,76 @@ export interface TabStagedState {
   /** Keyed by stable serialized row identity */
   deletes: Record<string, Record<string, any>>;
 }
+
+export interface PoolStats {
+  active: number;
+  idle: number;
+  max: number;
+  tracked: boolean;
+}
+
+export interface ActiveQueryProcess {
+  id: string;
+  user?: string | null;
+  database?: string | null;
+  state?: string | null;
+  durationMs: number;
+  query: string;
+  waitEvent?: string | null;
+}
+
+export interface ContainerResourceStat {
+  name: string;
+  schema?: string | null;
+  totalSizeBytes: number;
+  dataSizeBytes: number;
+  indexSizeBytes: number;
+  estimatedRows?: number | null;
+}
+
+export interface ServerResourceMetrics {
+  version?: string | null;
+  uptimeSeconds?: number | null;
+  activeConnections?: number | null;
+  idleConnections?: number | null;
+  maxConnections?: number | null;
+  cacheHitRatio?: number | null;
+  databaseSizeBytes?: number | null;
+  memoryMb?: number | null;
+  totalOperations?: number | null;
+  totalReads?: number | null;
+  totalWrites?: number | null;
+  activeQueries: ActiveQueryProcess[];
+  topContainers: ContainerResourceStat[];
+  warnings: string[];
+}
+
+export interface QueryLatencyPoint {
+  executedAt: string;
+  executionMs: number;
+  status: string;
+  database: string;
+}
+
+export interface ClientWorkspaceTelemetry {
+  pool: PoolStats;
+  sshTunnelActive: boolean;
+  sshLocalPort?: number | null;
+  totalQueriesExecuted: number;
+  failedQueriesCount: number;
+  errorRatePct: number;
+  avgQueryMs: number;
+  p95QueryMs: number;
+  recentLatencies: QueryLatencyPoint[];
+}
+
+export interface WorkspaceObservabilitySnapshot {
+  collectedAt: string;
+  engine: DatabaseEngine;
+  database: string;
+  pingMs: number;
+  server: ServerResourceMetrics;
+  client: ClientWorkspaceTelemetry;
+}
+
+export type PollingIntervalMs = 2000 | 5000 | 15000 | 0;

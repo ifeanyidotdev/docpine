@@ -3,8 +3,9 @@ use crate::models::{
     CommitMode, ContainerStructure, DataFormat, DataPageRequest, DataPageResult, DatabaseEngine,
     MutationResult, ParsedConnectionUri, QueryExecutionResult, QueryHistoryRecord, SafetyMode,
     SaveWorkspaceInput, SavedQueryRecord, SchemaChangeAction, SchemaChangeRequest, SchemaOverview,
-    StagedBatchRequest, WorkspaceConfig, WorkspaceCredentials,
+    StagedBatchRequest, WorkspaceConfig, WorkspaceCredentials, WorkspaceObservabilitySnapshot,
 };
+use chrono::Utc;
 use crate::services::{
     io_service::{format_export_payload, parse_import_payload},
     local_store::LocalStore,
@@ -300,6 +301,7 @@ pub async fn execute_query(
     let creds = state.store.get_credentials(&workspace_id)?;
     let driver = state.pools.get_or_connect(&config, &creds).await?;
 
+    let start = Instant::now();
     match driver.execute_raw_query(&database, &query).await {
         Ok(res) => {
             let _ = state.store.record_query_history(
@@ -318,7 +320,7 @@ pub async fn execute_query(
                 &database,
                 &query,
                 "error",
-                0,
+                start.elapsed().as_millis() as u64,
                 None,
             );
             Err(err)
@@ -460,4 +462,42 @@ pub async fn import_container_data(
         .await?;
     res.execution_ms = start.elapsed().as_millis() as u64;
     Ok(res)
+}
+
+#[tauri::command]
+pub async fn get_workspace_observability(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    database: String,
+) -> AppResult<WorkspaceObservabilitySnapshot> {
+    let config = state.store.get_workspace(&workspace_id)?;
+    let creds = state.store.get_credentials(&workspace_id)?;
+    let driver = state.pools.get_or_connect(&config, &creds).await?;
+
+    let target_db = if database.trim().is_empty() {
+        config.default_database.clone()
+    } else {
+        database
+    };
+
+    let ping_ms = driver.ping().await?;
+    let server = driver.collect_metrics(&target_db).await?;
+    let pool = driver.pool_stats().await;
+    let (ssh_tunnel_active, ssh_local_port) = state.pools.get_ssh_tunnel_info(&workspace_id).await;
+
+    let mut client = state
+        .store
+        .get_workspace_query_telemetry(&workspace_id, 30)?;
+    client.pool = pool;
+    client.ssh_tunnel_active = ssh_tunnel_active;
+    client.ssh_local_port = ssh_local_port;
+
+    Ok(WorkspaceObservabilitySnapshot {
+        collected_at: Utc::now().to_rfc3339(),
+        engine: config.engine,
+        database: target_db,
+        ping_ms,
+        server,
+        client,
+    })
 }
