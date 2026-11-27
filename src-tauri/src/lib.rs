@@ -19,6 +19,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::parse_uri,
             commands::build_uri,
+            commands::list_workspace_folders,
+            commands::save_workspace_folder,
+            commands::delete_workspace_folder,
+            commands::move_workspace_to_folder,
             commands::list_workspaces,
             commands::save_workspace,
             commands::get_workspace_credentials,

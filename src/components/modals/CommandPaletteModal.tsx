@@ -17,6 +17,7 @@ export function CommandPaletteModal() {
     commandPaletteOpen,
     setCommandPaletteOpen,
     workspaces,
+    folders,
     activeWorkspaceId,
     activeDatabaseByWorkspace,
     schemaByWorkspaceDb,
@@ -130,11 +131,14 @@ export function CommandPaletteModal() {
     }
   }
 
+  const folderNameById = new Map(folders.map((f) => [f.id, f.name]));
+
   for (const ws of workspaces) {
+    const folderName = ws.folderId ? folderNameById.get(ws.folderId) : null;
     actions.push({
       id: `ws-${ws.id}`,
-      label: `Switch to Workspace: ${ws.name} (${ws.engine.toUpperCase()})`,
-      category: "Workspaces",
+      label: `Switch to Workspace: ${folderName ? `${folderName} / ` : ""}${ws.name} (${ws.engine.toUpperCase()})`,
+      category: folderName ? `Folder • ${folderName}` : "Workspaces",
       icon: <Database className="w-4 h-4 text-sky-400" />,
       run: () => {
         void selectWorkspace(ws.id);

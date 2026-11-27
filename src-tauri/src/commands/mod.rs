@@ -2,8 +2,9 @@ use crate::error::AppResult;
 use crate::models::{
     CommitMode, ContainerStructure, DataFormat, DataPageRequest, DataPageResult, DatabaseEngine,
     MutationResult, ParsedConnectionUri, QueryExecutionResult, QueryHistoryRecord, SafetyMode,
-    SaveWorkspaceInput, SavedQueryRecord, SchemaChangeAction, SchemaChangeRequest, SchemaOverview,
-    StagedBatchRequest, WorkspaceConfig, WorkspaceCredentials, WorkspaceObservabilitySnapshot,
+    SaveWorkspaceFolderInput, SaveWorkspaceInput, SavedQueryRecord, SchemaChangeAction,
+    SchemaChangeRequest, SchemaOverview, StagedBatchRequest, WorkspaceConfig, WorkspaceCredentials,
+    WorkspaceFolder, WorkspaceObservabilitySnapshot,
 };
 use chrono::Utc;
 use crate::services::{
@@ -45,6 +46,35 @@ pub fn build_uri(
         &database,
         ssl_enabled,
     )
+}
+
+#[tauri::command]
+pub fn list_workspace_folders(state: State<'_, AppState>) -> AppResult<Vec<WorkspaceFolder>> {
+    state.store.list_workspace_folders()
+}
+
+#[tauri::command]
+pub fn save_workspace_folder(
+    state: State<'_, AppState>,
+    input: SaveWorkspaceFolderInput,
+) -> AppResult<WorkspaceFolder> {
+    state.store.save_workspace_folder(input)
+}
+
+#[tauri::command]
+pub fn delete_workspace_folder(state: State<'_, AppState>, folder_id: String) -> AppResult<()> {
+    state.store.delete_workspace_folder(&folder_id)
+}
+
+#[tauri::command]
+pub fn move_workspace_to_folder(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    folder_id: Option<String>,
+) -> AppResult<WorkspaceConfig> {
+    state
+        .store
+        .move_workspace_to_folder(&workspace_id, folder_id)
 }
 
 #[tauri::command]
@@ -106,6 +136,7 @@ pub async fn test_workspace_connection(input: SaveWorkspaceInput) -> AppResult<u
         commit_mode: input.commit_mode,
         ssl: input.ssl,
         ssh: input.ssh,
+        folder_id: input.folder_id,
         created_at: String::new(),
         last_opened_at: None,
     };

@@ -51,6 +51,7 @@ fn test_workspace_full_lifecycle_flow() {
             ca_cert_path: None,
         },
         ssh: SshTunnelConfig::default(),
+        folder_id: None,
         credentials: WorkspaceCredentials {
             db_password: parsed.password.clone(),
             ssh_password: None,

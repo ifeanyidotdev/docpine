@@ -29,6 +29,8 @@ export function WorkspaceConnectionModal() {
   const {
     connectionModalOpen,
     editingWorkspace,
+    defaultFolderIdForNewWorkspace,
+    folders,
     closeConnectionModal,
     saveWorkspace,
     selectWorkspace,
@@ -49,6 +51,7 @@ export function WorkspaceConnectionModal() {
 
   const [environment, setEnvironment] = useState<EnvironmentTag>("development");
   const [accentColor, setAccentColor] = useState("#10b981");
+  const [folderId, setFolderId] = useState<string>("");
   const [commitMode, setCommitMode] = useState<CommitMode>("staged");
   const [safetyMode, setSafetyMode] = useState<SafetyMode>("safe");
 
@@ -89,6 +92,7 @@ export function WorkspaceConnectionModal() {
       setUriInput(editingWorkspace.connectionUri || "");
       setEnvironment(editingWorkspace.environment);
       setAccentColor(editingWorkspace.accentColor);
+      setFolderId(editingWorkspace.folderId || "");
       setCommitMode(editingWorkspace.commitMode);
       setSafetyMode(editingWorkspace.safetyMode);
       setSslEnabled(editingWorkspace.ssl.enabled);
@@ -121,6 +125,7 @@ export function WorkspaceConnectionModal() {
       setUriInput("");
       setEnvironment("development");
       setAccentColor("#10b981");
+      setFolderId(defaultFolderIdForNewWorkspace || "");
       setCommitMode("staged");
       setSafetyMode("safe");
       setSslEnabled(false);
@@ -135,7 +140,7 @@ export function WorkspaceConnectionModal() {
       setSshKeyPath("");
       setSshPassphrase("");
     }
-  }, [connectionModalOpen, editingWorkspace]);
+  }, [connectionModalOpen, editingWorkspace, defaultFolderIdForNewWorkspace]);
 
   if (!connectionModalOpen) return null;
 
@@ -209,6 +214,7 @@ export function WorkspaceConnectionModal() {
       authMethod: sshAuthMethod,
       privateKeyPath: sshKeyPath.trim() || null,
     },
+    folderId: folderId.trim() ? folderId.trim() : null,
     credentials: {
       dbPassword: password || null,
       sshPassword: sshPassword || null,
@@ -345,6 +351,8 @@ export function WorkspaceConnectionModal() {
               username={username}
               password={password}
               defaultDatabase={defaultDatabase}
+              folderId={folderId}
+              folders={folders}
               onEngineSwitch={handleEngineSwitch}
               setName={setName}
               setHost={setHost}
@@ -352,6 +360,7 @@ export function WorkspaceConnectionModal() {
               setUsername={setUsername}
               setPassword={setPassword}
               setDefaultDatabase={setDefaultDatabase}
+              setFolderId={setFolderId}
             />
           )}
 

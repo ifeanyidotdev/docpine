@@ -4,6 +4,7 @@ import { WorkspaceRail } from "./components/shell/WorkspaceRail";
 import { WorkspaceLaunchpad } from "./components/shell/WorkspaceLaunchpad";
 import { ActiveWorkspaceView } from "./components/workspace/ActiveWorkspaceView";
 import { WorkspaceConnectionModal } from "./components/modals/WorkspaceConnectionModal";
+import { WorkspaceFolderModal } from "./components/modals/WorkspaceFolderModal";
 import { CommandPaletteModal } from "./components/modals/CommandPaletteModal";
 import { ImportExportModal } from "./components/io/ImportExportModal";
 import { useWorkspaceStore } from "./store/useWorkspaceStore";
@@ -99,6 +100,7 @@ export default function App() {
 
       {/* Global Modals */}
       <WorkspaceConnectionModal />
+      <WorkspaceFolderModal />
       <CommandPaletteModal />
       <ImportExportModal />
 

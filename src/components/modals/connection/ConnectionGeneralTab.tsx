@@ -1,5 +1,5 @@
 import React from "react";
-import type { DatabaseEngine } from "../../../types/docpine";
+import type { DatabaseEngine, WorkspaceFolder } from "../../../types/docpine";
 
 interface ConnectionGeneralTabProps {
   engine: DatabaseEngine;
@@ -9,6 +9,8 @@ interface ConnectionGeneralTabProps {
   username: string;
   password: string;
   defaultDatabase: string;
+  folderId: string;
+  folders: WorkspaceFolder[];
   onEngineSwitch: (engine: DatabaseEngine) => void;
   setName: (v: string) => void;
   setHost: (v: string) => void;
@@ -16,6 +18,7 @@ interface ConnectionGeneralTabProps {
   setUsername: (v: string) => void;
   setPassword: (v: string) => void;
   setDefaultDatabase: (v: string) => void;
+  setFolderId: (v: string) => void;
 }
 
 export function ConnectionGeneralTab({
@@ -26,6 +29,8 @@ export function ConnectionGeneralTab({
   username,
   password,
   defaultDatabase,
+  folderId,
+  folders,
   onEngineSwitch,
   setName,
   setHost,
@@ -33,6 +38,7 @@ export function ConnectionGeneralTab({
   setUsername,
   setPassword,
   setDefaultDatabase,
+  setFolderId,
 }: ConnectionGeneralTabProps) {
   return (
     <div className="space-y-4">
@@ -78,22 +84,41 @@ export function ConnectionGeneralTab({
         </div>
       </div>
 
-      {/* Workspace Name */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-300">
-          Workspace Name
-        </label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Core Billing Prod, Analytics Staging, Local Mongo..."
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/60"
-        />
+      {/* Workspace Name & Folder */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2 space-y-1.5">
+          <label className="text-xs font-medium text-zinc-300">
+            Workspace Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Core Billing Prod, Analytics Staging, Local Mongo..."
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/60"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-zinc-300">
+            Folder (Optional)
+          </label>
+          <select
+            value={folderId}
+            onChange={(e) => setFolderId(e.target.value)}
+            className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 focus:outline-none focus:border-emerald-500/60"
+          >
+            <option value="">No Folder</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Host & Port */}
