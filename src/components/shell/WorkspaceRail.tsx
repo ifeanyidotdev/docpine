@@ -10,6 +10,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { useUpdateStore } from "../../store/useUpdateStore";
 import type { DatabaseEngine, WorkspaceConfig } from "../../types/docpine";
 
 export function engineShortLabel(engine: DatabaseEngine): string {
@@ -46,6 +47,14 @@ export function WorkspaceRail() {
     setCommandPaletteOpen,
     toggleFolderExpanded,
   } = useWorkspaceStore();
+
+  const {
+    status: updateStatus,
+    currentVersion,
+    updateVersion,
+    checkForUpdates,
+    relaunchApp,
+  } = useUpdateStore();
 
   const getInitials = (ws: WorkspaceConfig) => {
     const words = ws.name.trim().split(/\s+/);
@@ -327,13 +336,29 @@ export function WorkspaceRail() {
         </button>
       </div>
 
-      {/* Footer Brand Badge */}
-      <div className="pt-2 flex flex-col items-center gap-1 opacity-60">
+      {/* Footer Brand Badge (clickable to check for updates / relaunch) */}
+      <button
+        type="button"
+        onClick={() =>
+          updateStatus === "ready"
+            ? void relaunchApp()
+            : void checkForUpdates({ manual: true })
+        }
+        title={
+          updateStatus === "ready"
+            ? `Update v${updateVersion || ""} ready — click to restart`
+            : `Docpine v${currentVersion || "0.1.0"} — click to check for updates`
+        }
+        className="relative pt-2 flex flex-col items-center gap-1 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+      >
         <Database className="w-4 h-4 text-emerald-400" />
-        <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-500">
-          v0.1
+        <span className="text-[9px] font-mono tracking-wider text-zinc-500">
+          v{currentVersion || "0.1.0"}
         </span>
-      </div>
+        {updateStatus === "ready" && (
+          <span className="absolute top-1.5 right-0 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        )}
+      </button>
     </aside>
   );
 }

@@ -8,9 +8,12 @@ import {
   Activity,
   Plus,
   GitCommitHorizontal,
+  RefreshCw,
+  RotateCw,
   X,
 } from "lucide-react";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
+import { useUpdateStore } from "../../store/useUpdateStore";
 
 export function CommandPaletteModal() {
   const {
@@ -26,6 +29,13 @@ export function CommandPaletteModal() {
     openTab,
     updateWorkspaceModes,
   } = useWorkspaceStore();
+
+  const {
+    status: updateStatus,
+    updateVersion,
+    checkForUpdates,
+    relaunchApp,
+  } = useUpdateStore();
 
   const [query, setQuery] = useState("");
 
@@ -155,6 +165,28 @@ export function CommandPaletteModal() {
       openConnectionModal(null);
     },
   });
+
+  if (updateStatus === "ready") {
+    actions.push({
+      id: "relaunch-update",
+      label: `Restart to Apply Docpine Update${updateVersion ? ` (v${updateVersion})` : ""}`,
+      category: "Global",
+      icon: <RotateCw className="w-4 h-4 text-emerald-400" />,
+      run: () => {
+        void relaunchApp();
+      },
+    });
+  } else {
+    actions.push({
+      id: "check-updates",
+      label: "Check for Docpine Updates",
+      category: "Global",
+      icon: <RefreshCw className="w-4 h-4 text-sky-400" />,
+      run: () => {
+        void checkForUpdates({ manual: true });
+      },
+    });
+  }
 
   const filtered = actions.filter(
     (a) =>

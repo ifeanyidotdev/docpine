@@ -22,16 +22,18 @@ export default function App() {
     dismissToast,
   } = useWorkspaceStore();
 
-  const { startBackgroundCheckAndDownload } = useUpdateStore();
+  const { loadCurrentVersion, startBackgroundCheckAndDownload } =
+    useUpdateStore();
 
   useEffect(() => {
     void loadWorkspaces();
-    // Silently check for updates in background
+    void loadCurrentVersion();
+    // Silently check for updates in background on launch
     const timer = setTimeout(() => {
       void startBackgroundCheckAndDownload();
     }, 3000);
     return () => clearTimeout(timer);
-  }, [loadWorkspaces, startBackgroundCheckAndDownload]);
+  }, [loadWorkspaces, loadCurrentVersion, startBackgroundCheckAndDownload]);
 
   // Global keyboard shortcuts: Cmd+K (Command Palette), Cmd+0 (Launchpad), Cmd+1..9 (Switch Workspace)
   useEffect(() => {
