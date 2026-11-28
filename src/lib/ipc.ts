@@ -11,6 +11,7 @@ import type {
   QueryExecutionResult,
   QueryHistoryRecord,
   SafetyMode,
+  SaveWorkspaceFolderInput,
   SaveWorkspaceInput,
   SavedQueryRecord,
   SchemaChangeRequest,
@@ -18,6 +19,7 @@ import type {
   StagedBatchRequest,
   WorkspaceConfig,
   WorkspaceCredentials,
+  WorkspaceFolder,
   WorkspaceObservabilitySnapshot,
 } from "../types/docpine";
 
@@ -58,6 +60,7 @@ export function isTauriRuntime(): boolean {
 }
 
 const BROWSER_STORAGE_KEY = "docpine.browser.workspaces";
+const BROWSER_FOLDERS_KEY = "docpine.browser.folders";
 
 function loadBrowserWorkspaces(): WorkspaceConfig[] {
   try {
@@ -71,6 +74,23 @@ function loadBrowserWorkspaces(): WorkspaceConfig[] {
 function saveBrowserWorkspaces(list: WorkspaceConfig[]) {
   try {
     localStorage.setItem(BROWSER_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
+
+function loadBrowserFolders(): WorkspaceFolder[] {
+  try {
+    const raw = localStorage.getItem(BROWSER_FOLDERS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBrowserFolders(list: WorkspaceFolder[]) {
+  try {
+    localStorage.setItem(BROWSER_FOLDERS_KEY, JSON.stringify(list));
   } catch {
     // ignore
   }
@@ -129,6 +149,68 @@ export const ipc = {
     return invoke<string>("build_uri", params);
   },
 
+  async listWorkspaceFolders(): Promise<WorkspaceFolder[]> {
+    if (!isTauriRuntime()) {
+      return loadBrowserFolders();
+    }
+    return invoke<WorkspaceFolder[]>("list_workspace_folders");
+  },
+
+  async saveWorkspaceFolder(
+    input: SaveWorkspaceFolderInput
+  ): Promise<WorkspaceFolder> {
+    if (!isTauriRuntime()) {
+      const list = loadBrowserFolders();
+      const id = input.id || crypto.randomUUID();
+      const existing = list.find((f) => f.id === id);
+      const folder: WorkspaceFolder = {
+        id,
+        name: input.name.trim(),
+        color: input.color,
+        createdAt: existing?.createdAt || new Date().toISOString(),
+      };
+      const next = [...list.filter((f) => f.id !== id), folder].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      saveBrowserFolders(next);
+      return folder;
+    }
+    return invoke<WorkspaceFolder>("save_workspace_folder", { input });
+  },
+
+  async deleteWorkspaceFolder(folderId: string): Promise<void> {
+    if (!isTauriRuntime()) {
+      saveBrowserFolders(
+        loadBrowserFolders().filter((f) => f.id !== folderId)
+      );
+      saveBrowserWorkspaces(
+        loadBrowserWorkspaces().map((w) =>
+          w.folderId === folderId ? { ...w, folderId: null } : w
+        )
+      );
+      return;
+    }
+    return invoke<void>("delete_workspace_folder", { folderId });
+  },
+
+  async moveWorkspaceToFolder(
+    workspaceId: string,
+    folderId: string | null
+  ): Promise<WorkspaceConfig> {
+    if (!isTauriRuntime()) {
+      const list = loadBrowserWorkspaces();
+      const target = list.find((w) => w.id === workspaceId);
+      if (!target) throw new Error("Workspace not found");
+      target.folderId = folderId;
+      saveBrowserWorkspaces(list);
+      return { ...target };
+    }
+    return invoke<WorkspaceConfig>("move_workspace_to_folder", {
+      workspaceId,
+      folderId,
+    });
+  },
+
   async listWorkspaces(): Promise<WorkspaceConfig[]> {
     if (!isTauriRuntime()) {
       return loadBrowserWorkspaces();
@@ -156,6 +238,7 @@ export const ipc = {
         commitMode: input.commitMode,
         ssl: input.ssl,
         ssh: input.ssh,
+        folderId: input.folderId ?? null,
         createdAt: now,
         lastOpenedAt: now,
       };

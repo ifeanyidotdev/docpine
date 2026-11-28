@@ -106,6 +106,23 @@ pub struct WorkspaceCredentials {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceFolder {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveWorkspaceFolderInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceConfig {
     pub id: String,
     pub name: String,
@@ -121,6 +138,8 @@ pub struct WorkspaceConfig {
     pub commit_mode: CommitMode,
     pub ssl: SslConfig,
     pub ssh: SshTunnelConfig,
+    #[serde(default)]
+    pub folder_id: Option<String>,
     pub created_at: String,
     pub last_opened_at: Option<String>,
 }
@@ -142,6 +161,8 @@ pub struct SaveWorkspaceInput {
     pub commit_mode: CommitMode,
     pub ssl: SslConfig,
     pub ssh: SshTunnelConfig,
+    #[serde(default)]
+    pub folder_id: Option<String>,
     pub credentials: WorkspaceCredentials,
 }
 
@@ -209,6 +230,7 @@ mod tests {
                 auth_method: SshAuthMethod::Password,
                 private_key_path: None,
             },
+            folder_id: Some("folder-billing".to_string()),
             created_at: "2026-11-17T10:00:00Z".to_string(),
             last_opened_at: Some("2026-11-17T11:00:00Z".to_string()),
         };

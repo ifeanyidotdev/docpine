@@ -29,6 +29,19 @@ export interface WorkspaceCredentials {
   sshPassphrase?: string | null;
 }
 
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
+
+export interface SaveWorkspaceFolderInput {
+  id?: string | null;
+  name: string;
+  color: string;
+}
+
 export interface WorkspaceConfig {
   id: string;
   name: string;
@@ -44,6 +57,7 @@ export interface WorkspaceConfig {
   commitMode: CommitMode;
   ssl: SslConfig;
   ssh: SshTunnelConfig;
+  folderId?: string | null;
   createdAt: string;
   lastOpenedAt?: string | null;
 }
@@ -63,6 +77,7 @@ export interface SaveWorkspaceInput {
   commitMode: CommitMode;
   ssl: SslConfig;
   ssh: SshTunnelConfig;
+  folderId?: string | null;
   credentials: WorkspaceCredentials;
 }
 
