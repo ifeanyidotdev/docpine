@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Database,
   Plus,
@@ -10,19 +10,35 @@ import {
   Trash2,
   ArrowUpRight,
   Layers,
+  FolderPlus,
+  Folder,
+  FolderInput,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { useWorkspaceStore } from "../../store/useWorkspaceStore";
 import { engineFullName } from "./WorkspaceRail";
 import { EnvironmentDropdownFilter } from "./EnvironmentDropdownFilter";
-import type { DatabaseEngine, EnvironmentTag } from "../../types/docpine";
+import type {
+  DatabaseEngine,
+  EnvironmentTag,
+  WorkspaceConfig,
+  WorkspaceFolder,
+} from "../../types/docpine";
 
 export function WorkspaceLaunchpad() {
   const {
     workspaces,
+    folders,
     connectionStatus,
     selectWorkspace,
     openConnectionModal,
+    openFolderModal,
     deleteWorkspace,
+    deleteFolder,
+    moveWorkspaceToFolder,
   } = useWorkspaceStore();
 
   const [search, setSearch] = useState("");
@@ -30,21 +46,84 @@ export function WorkspaceLaunchpad() {
     "all"
   );
   const [envFilter, setEnvFilter] = useState<EnvironmentTag | "all">("all");
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<string, boolean>
+  >({});
+  const [moveMenuWorkspaceId, setMoveMenuWorkspaceId] = useState<string | null>(
+    null
+  );
+  const [confirmDeleteFolder, setConfirmDeleteFolder] =
+    useState<WorkspaceFolder | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState(false);
+
+  // Close delete confirmation on Escape
+  useEffect(() => {
+    if (!confirmDeleteFolder) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !deletingFolder) {
+        setConfirmDeleteFolder(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [confirmDeleteFolder, deletingFolder]);
+
+  // Close move-to-folder menu on outside click or Escape
+  useEffect(() => {
+    if (!moveMenuWorkspaceId) return;
+    const handleClick = () => setMoveMenuWorkspaceId(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoveMenuWorkspaceId(null);
+    };
+    window.addEventListener("click", handleClick);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [moveMenuWorkspaceId]);
+
+  const folderNameById = new Map(folders.map((f) => [f.id, f.name]));
 
   const filtered = workspaces.filter((ws) => {
     if (engineFilter !== "all" && ws.engine !== engineFilter) return false;
     if (envFilter !== "all" && ws.environment !== envFilter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
+      const folderName = ws.folderId
+        ? (folderNameById.get(ws.folderId) || "").toLowerCase()
+        : "";
       return (
         ws.name.toLowerCase().includes(q) ||
         ws.host.toLowerCase().includes(q) ||
         ws.defaultDatabase.toLowerCase().includes(q) ||
-        ws.engine.toLowerCase().includes(q)
+        ws.engine.toLowerCase().includes(q) ||
+        folderName.includes(q)
       );
     }
     return true;
   });
+
+  const hasActiveFilter =
+    Boolean(search.trim()) || engineFilter !== "all" || envFilter !== "all";
+
+  const folderIdSet = new Set(folders.map((f) => f.id));
+  const groupedByFolder = new Map<string, WorkspaceConfig[]>();
+  const ungroupedFiltered: WorkspaceConfig[] = [];
+
+  for (const ws of filtered) {
+    if (ws.folderId && folderIdSet.has(ws.folderId)) {
+      const list = groupedByFolder.get(ws.folderId) || [];
+      list.push(ws);
+      groupedByFolder.set(ws.folderId, list);
+    } else {
+      ungroupedFiltered.push(ws);
+    }
+  }
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const envBadgeStyle = (env: EnvironmentTag) => {
     switch (env) {
@@ -70,6 +149,213 @@ export function WorkspaceLaunchpad() {
     }
   };
 
+  const renderWorkspaceCard = (ws: WorkspaceConfig) => {
+    const status = connectionStatus[ws.id] || "disconnected";
+    const isMoveOpen = moveMenuWorkspaceId === ws.id;
+
+    return (
+      <div
+        key={ws.id}
+        onClick={() => void selectWorkspace(ws.id)}
+        className="group relative rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700/80 p-5 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5"
+      >
+        {/* Top Accent Line */}
+        <div
+          className="absolute inset-x-0 top-0 h-[2.5px] rounded-t-2xl transition-all group-hover:h-[3px]"
+          style={{ backgroundColor: ws.accentColor }}
+        />
+
+        <div className="space-y-4">
+          {/* Header Badges & Actions */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md border tracking-wide ${engineBadgeStyle(
+                  ws.engine
+                )}`}
+              >
+                {engineFullName(ws.engine)}
+              </span>
+              <span
+                className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded-md border tracking-wide ${envBadgeStyle(
+                  ws.environment
+                )}`}
+              >
+                {ws.environment}
+              </span>
+            </div>
+
+            <div
+              className="relative flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {folders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMoveMenuWorkspaceId((prev) =>
+                      prev === ws.id ? null : ws.id
+                    )
+                  }
+                  title="Move to Folder"
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                    isMoveOpen
+                      ? "bg-zinc-800 text-emerald-300"
+                      : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                  }`}
+                >
+                  <FolderInput className="w-4 h-4" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => openConnectionModal(ws)}
+                title="Edit Workspace Connection"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteWorkspace(ws.id)}
+                title="Delete Workspace"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+
+              {/* Quick Move-to-Folder Popover */}
+              {isMoveOpen && (
+                <div className="absolute right-0 top-9 w-48 rounded-xl bg-zinc-900 border border-zinc-700/80 shadow-2xl py-1 z-30">
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Move to Folder
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void moveWorkspaceToFolder(ws.id, null);
+                      setMoveMenuWorkspaceId(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-xs flex items-center justify-between text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+                  >
+                    <span className="truncate">Ungrouped</span>
+                    {!ws.folderId && (
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    )}
+                  </button>
+                  {folders.map((folder) => {
+                    const isCurrent = ws.folderId === folder.id;
+                    return (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => {
+                          void moveWorkspaceToFolder(ws.id, folder.id);
+                          setMoveMenuWorkspaceId(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-xs flex items-center justify-between gap-2 text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: folder.color }}
+                          />
+                          <span className="truncate">{folder.name}</span>
+                        </span>
+                        {isCurrent && (
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Workspace Title */}
+          <div>
+            <h3 className="text-base font-semibold text-zinc-100 group-hover:text-emerald-300 transition-colors truncate">
+              {ws.name}
+            </h3>
+          </div>
+
+          {/* Host & Database Inset Box */}
+          <div className="space-y-2 text-xs font-mono bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/60">
+            <div className="flex items-center gap-2 truncate">
+              <Server className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <span className="truncate text-zinc-300">
+                {ws.username ? `${ws.username}@` : ""}
+                {ws.host}:{ws.port}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 truncate">
+                <Database className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                <span className="truncate text-zinc-400">
+                  db:{" "}
+                  <strong className="text-zinc-200 font-medium">
+                    {ws.defaultDatabase || "(default)"}
+                  </strong>
+                </span>
+              </div>
+
+              {/* Optional SSL & SSH status indicators */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {ws.ssl?.enabled && (
+                  <span
+                    className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800"
+                    title="TLS/SSL Active"
+                  >
+                    <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                    SSL
+                  </span>
+                )}
+                {ws.ssh?.enabled && (
+                  <span
+                    className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800"
+                    title="SSH Bastion Active"
+                  >
+                    <Shield className="w-2.5 h-2.5 text-sky-400" />
+                    SSH
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Clean Footer */}
+        <div className="flex items-center justify-between pt-3.5 mt-4 border-t border-zinc-800/60 text-xs">
+          <div className="flex items-center gap-2">
+            {status === "connected" ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>Connected</span>
+              </span>
+            ) : status === "connecting" ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span>Connecting...</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                <span>Ready</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 text-xs font-medium text-zinc-400 group-hover:text-emerald-400 transition-colors">
+            <span>Open</span>
+            <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 h-full overflow-y-auto bg-zinc-950 text-zinc-100 p-8">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -84,13 +370,23 @@ export function WorkspaceLaunchpad() {
             </h1>
           </div>
 
-          <button
-            onClick={() => openConnectionModal(null)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-sm shadow-lg shadow-emerald-950/50 transition-all cursor-pointer shrink-0"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            New Workspace
-          </button>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => openFolderModal(null)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-medium text-sm transition-all cursor-pointer"
+            >
+              <FolderPlus className="w-4 h-4 text-indigo-400" />
+              New Folder
+            </button>
+
+            <button
+              onClick={() => openConnectionModal(null)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-sm shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              New Workspace
+            </button>
+          </div>
         </div>
 
         {/* Search & Filter Bar */}
@@ -101,7 +397,7 @@ export function WorkspaceLaunchpad() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter workspaces by name, host, database, or engine..."
+              placeholder="Filter workspaces by name, folder, host, database, or engine..."
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
@@ -138,8 +434,8 @@ export function WorkspaceLaunchpad() {
           </div>
         </div>
 
-        {/* Workspaces Grid */}
-        {filtered.length === 0 ? (
+        {/* Workspaces Grid / Grouped Folder Sections */}
+        {filtered.length === 0 && (hasActiveFilter || folders.length === 0) ? (
           <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/30 p-12 text-center space-y-4">
             <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
               <Layers className="w-7 h-7" />
@@ -158,154 +454,212 @@ export function WorkspaceLaunchpad() {
             </div>
             <button
               onClick={() => openConnectionModal(null)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add Database Connection
             </button>
           </div>
-        ) : (
+        ) : folders.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filtered.map((ws) => {
-              const status = connectionStatus[ws.id] || "disconnected";
+            {filtered.map((ws) => renderWorkspaceCard(ws))}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {folders.map((folder) => {
+              const items = groupedByFolder.get(folder.id) || [];
+              if (hasActiveFilter && items.length === 0) return null;
+              const isCollapsed = Boolean(collapsedSections[folder.id]);
 
               return (
-                <div
-                  key={ws.id}
-                  onClick={() => void selectWorkspace(ws.id)}
-                  className="group relative rounded-2xl bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700/80 p-5 transition-all duration-200 cursor-pointer flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5"
-                >
-                  {/* Top Accent Line */}
-                  <div
-                    className="absolute inset-x-0 top-0 h-[2.5px] rounded-t-2xl transition-all group-hover:h-[3px]"
-                    style={{ backgroundColor: ws.accentColor }}
-                  />
-
-                  <div className="space-y-4">
-                    {/* Header Badges & Actions */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span
-                          className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md border tracking-wide ${engineBadgeStyle(
-                            ws.engine
-                          )}`}
-                        >
-                          {engineFullName(ws.engine)}
-                        </span>
-                        <span
-                          className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded-md border tracking-wide ${envBadgeStyle(
-                            ws.environment
-                          )}`}
-                        >
-                          {ws.environment}
-                        </span>
-                      </div>
-
-                      <div
-                        className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          onClick={() => openConnectionModal(ws)}
-                          title="Edit Workspace Connection"
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors"
-                        >
-                          <Settings2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => void deleteWorkspace(ws.id)}
-                          title="Delete Workspace"
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/15 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Workspace Title */}
-                    <div>
-                      <h3 className="text-base font-semibold text-zinc-100 group-hover:text-emerald-300 transition-colors truncate">
-                        {ws.name}
-                      </h3>
-                    </div>
-
-                    {/* Host & Database Inset Box */}
-                    <div className="space-y-2 text-xs font-mono bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/60">
-                      <div className="flex items-center gap-2 truncate">
-                        <Server className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                        <span className="truncate text-zinc-300">
-                          {ws.username ? `${ws.username}@` : ""}
-                          {ws.host}:{ws.port}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 truncate">
-                          <Database className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                          <span className="truncate text-zinc-400">
-                            db:{" "}
-                            <strong className="text-zinc-200 font-medium">
-                              {ws.defaultDatabase || "(default)"}
-                            </strong>
-                          </span>
-                        </div>
-
-                        {/* Optional SSL & SSH status indicators */}
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {ws.ssl?.enabled && (
-                            <span
-                              className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800"
-                              title="TLS/SSL Active"
-                            >
-                              <Lock className="w-2.5 h-2.5 text-emerald-400" />
-                              SSL
-                            </span>
-                          )}
-                          {ws.ssh?.enabled && (
-                            <span
-                              className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800"
-                              title="SSH Bastion Active"
-                            >
-                              <Shield className="w-2.5 h-2.5 text-sky-400" />
-                              SSH
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Clean Footer */}
-                  <div className="flex items-center justify-between pt-3.5 mt-4 border-t border-zinc-800/60 text-xs">
-                    <div className="flex items-center gap-2">
-                      {status === "connected" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          <span>Connected</span>
-                        </span>
-                      ) : status === "connecting" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                          <span>Connecting...</span>
-                        </span>
+                <section key={folder.id} className="space-y-3">
+                  {/* Folder Section Header */}
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-800/70">
+                    <button
+                      type="button"
+                      onClick={() => toggleSection(folder.id)}
+                      className="flex items-center gap-2.5 text-left group cursor-pointer min-w-0"
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 shrink-0" />
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500">
-                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                          <span>Ready</span>
-                        </span>
+                        <ChevronDown className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 shrink-0" />
                       )}
-                    </div>
+                      <span
+                        className="w-6 h-6 rounded-lg flex items-center justify-center border shrink-0"
+                        style={{
+                          backgroundColor: `${folder.color}1F`,
+                          borderColor: `${folder.color}48`,
+                        }}
+                      >
+                        <Folder
+                          className="w-3.5 h-3.5"
+                          style={{ color: folder.color }}
+                        />
+                      </span>
+                      <h2 className="text-sm font-semibold text-zinc-100 truncate">
+                        {folder.name}
+                      </h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-zinc-900 border border-zinc-800 text-zinc-400">
+                        {items.length}
+                      </span>
+                    </button>
 
-                    <div className="flex items-center gap-1 text-xs font-medium text-zinc-400 group-hover:text-emerald-400 transition-colors">
-                      <span>Open</span>
-                      <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openConnectionModal(null, folder.id)}
+                        title={`Add workspace to ${folder.name}`}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-zinc-400 hover:text-emerald-300 hover:bg-zinc-900 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openFolderModal(folder)}
+                        title="Rename or recolor folder"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteFolder(folder)}
+                        title="Delete folder"
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
-                </div>
+
+                  {!isCollapsed &&
+                    (items.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-zinc-800/80 bg-zinc-900/20 px-4 py-6 text-center text-xs text-zinc-500">
+                        No workspaces in this folder yet. Click{" "}
+                        <button
+                          type="button"
+                          onClick={() => openConnectionModal(null, folder.id)}
+                          className="text-emerald-400 hover:underline cursor-pointer"
+                        >
+                          Add
+                        </button>{" "}
+                        or use the folder icon on any workspace card to move it
+                        here.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {items.map((ws) => renderWorkspaceCard(ws))}
+                      </div>
+                    ))}
+                </section>
               );
             })}
+
+            {/* Ungrouped Workspaces */}
+            {ungroupedFiltered.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-800/70">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection("__ungrouped")}
+                    className="flex items-center gap-2 text-left group cursor-pointer"
+                  >
+                    {collapsedSections["__ungrouped"] ? (
+                      <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" />
+                    )}
+                    <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Ungrouped
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-zinc-900 border border-zinc-800 text-zinc-400">
+                      {ungroupedFiltered.length}
+                    </span>
+                  </button>
+                </div>
+
+                {!collapsedSections["__ungrouped"] && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {ungroupedFiltered.map((ws) => renderWorkspaceCard(ws))}
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         )}
       </div>
+
+      {/* Delete Folder Confirmation Modal */}
+      {confirmDeleteFolder && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => {
+            if (!deletingFolder) setConfirmDeleteFolder(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl overflow-hidden"
+          >
+            <div className="p-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-zinc-100 truncate">
+                    Delete &ldquo;{confirmDeleteFolder.name}&rdquo;?
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    This action removes the folder only.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                {(() => {
+                  const count = workspaces.filter(
+                    (w) => w.folderId === confirmDeleteFolder.id
+                  ).length;
+                  if (count === 0) {
+                    return "This folder is empty and will be permanently removed.";
+                  }
+                  return `${count} workspace${count === 1 ? "" : "s"} inside will be kept safe and moved to Ungrouped.`;
+                })()}
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 bg-zinc-950/90 border-t border-zinc-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={deletingFolder}
+                onClick={() => setConfirmDeleteFolder(null)}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingFolder}
+                onClick={async () => {
+                  setDeletingFolder(true);
+                  try {
+                    await deleteFolder(confirmDeleteFolder.id);
+                    setConfirmDeleteFolder(null);
+                  } finally {
+                    setDeletingFolder(false);
+                  }
+                }}
+                className="px-4 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {deletingFolder ? "Deleting..." : "Delete Folder"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

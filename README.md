@@ -29,10 +29,15 @@ The command center for all your databases. Organize databases by engine, environ
 
 ![Docpine Workspaces Launchpad](assets/screenshots/launchpad.png)
 
-### Workspace Data Grid & Schema Explorer
+### Relational SQL Workspace (PostgreSQL / MySQL)
 Deep inspection, in-place cell editing, advanced visual filtering, and multi-tab exploration.
 
 ![Docpine Workspace View](assets/screenshots/workspace-view.png)
+
+### MongoDB NoSQL Document Workspace
+Dedicated collections explorer with document count badges, live MQL query runner, JSON/Grid/Tree views, and inline staged document editing.
+
+![Docpine MongoDB Workspace View](assets/screenshots/mongodb-workspace.png)
 
 ---
 

@@ -182,4 +182,99 @@ mod tests {
         assert_eq!(imported[0]["id"], json!(1));
         assert_eq!(imported[0]["active"], json!(true));
     }
+
+    #[test]
+    fn test_json_export_and_import() {
+        let rows = vec![
+            json!({"id": 101, "item": "Laptop", "price": 1299.99, "tags": ["hardware", "work"], "notes": null}),
+            json!({"id": 102, "item": "Mouse", "price": 49.50, "tags": ["accessory"], "notes": "ergonomic"}),
+        ];
+
+        let json_out = format_export_payload(
+            DatabaseEngine::Postgres,
+            Some("public"),
+            "inventory",
+            &DataFormat::Json,
+            &rows,
+        )
+        .expect("should export JSON");
+
+        let imported = parse_import_payload(&DataFormat::Json, &json_out)
+            .expect("should parse JSON payload");
+
+        assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0]["item"], json!("Laptop"));
+        assert_eq!(imported[0]["price"], json!(1299.99));
+        assert_eq!(imported[0]["notes"], json!(null));
+        assert_eq!(imported[1]["tags"][0], json!("accessory"));
+    }
+
+    #[test]
+    fn test_ndjson_import() {
+        let ndjson = r#"{"id": 1, "status": "active"}
+{"id": 2, "status": "pending"}
+{"id": 3, "status": "suspended"}"#;
+
+        let imported = parse_import_payload(&DataFormat::Json, ndjson)
+            .expect("should parse NDJSON payload");
+
+        assert_eq!(imported.len(), 3);
+        assert_eq!(imported[0]["status"], json!("active"));
+        assert_eq!(imported[1]["id"], json!(2));
+        assert_eq!(imported[2]["status"], json!("suspended"));
+    }
+
+    #[test]
+    fn test_sql_insert_export_dialect_escaping() {
+        let rows = vec![
+            json!({"id": 1, "author": "Liam O'Connor", "bio": "Writer, Developer"}),
+        ];
+
+        // PostgreSQL dialect (double-quoted table identifiers, single-quoted string escapes)
+        let pg_sql = format_export_payload(
+            DatabaseEngine::Postgres,
+            Some("public"),
+            "authors",
+            &DataFormat::SqlInsert,
+            &rows,
+        )
+        .expect("export Postgres SQL insert");
+
+        assert!(pg_sql.contains(r#"INSERT INTO "public"."authors""#));
+        assert!(pg_sql.contains(r#"'Liam O''Connor'"#));
+
+        // MySQL dialect (backticked table identifiers)
+        let mysql_sql = format_export_payload(
+            DatabaseEngine::Mysql,
+            None,
+            "authors",
+            &DataFormat::SqlInsert,
+            &rows,
+        )
+        .expect("export MySQL SQL insert");
+
+        assert!(mysql_sql.contains(r#"INSERT INTO `authors`"#));
+        assert!(mysql_sql.contains(r#"'Liam O''Connor'"#));
+    }
+
+    #[test]
+    fn test_csv_special_characters_quotes_and_commas() {
+        let rows = vec![
+            json!({"id": 1, "title": "Docpine, Inc.", "description": "Fast & \"modern\" DB tool"}),
+        ];
+
+        let csv_out = format_export_payload(
+            DatabaseEngine::Postgres,
+            None,
+            "companies",
+            &DataFormat::Csv,
+            &rows,
+        )
+        .unwrap();
+
+        let imported = parse_import_payload(&DataFormat::Csv, &csv_out).unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0]["title"], json!("Docpine, Inc."));
+        assert_eq!(imported[0]["description"], json!("Fast & \"modern\" DB tool"));
+    }
 }

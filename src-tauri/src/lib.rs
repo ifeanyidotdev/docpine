@@ -13,10 +13,16 @@ pub fn run() {
     let pools = WorkspacePoolManager::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState { store, pools })
         .invoke_handler(tauri::generate_handler![
             commands::parse_uri,
             commands::build_uri,
+            commands::list_workspace_folders,
+            commands::save_workspace_folder,
+            commands::delete_workspace_folder,
+            commands::move_workspace_to_folder,
             commands::list_workspaces,
             commands::save_workspace,
             commands::get_workspace_credentials,
@@ -33,6 +39,7 @@ pub fn run() {
             commands::apply_mutations,
             commands::preview_schema_change,
             commands::apply_schema_change,
+            commands::create_schema,
             commands::execute_query,
             commands::list_saved_queries,
             commands::save_workspace_query,
@@ -42,6 +49,7 @@ pub fn run() {
             commands::get_workspace_tabs,
             commands::export_container_data,
             commands::import_container_data,
+            commands::get_workspace_observability,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Docpine tauri application");

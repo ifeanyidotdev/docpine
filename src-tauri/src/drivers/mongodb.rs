@@ -1,10 +1,11 @@
 use crate::drivers::WorkspaceDriver;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    ColumnMeta, ContainerKind, ContainerStructure, ContainerSummary, DataPageRequest,
-    DataPageResult, FilterOperator, FilterRule, ForeignKeyEdge, IndexDefinition, MutationResult,
-    QueryExecutionResult, SchemaChangeAction, SchemaChangeRequest, SchemaOverview, SortRule,
-    SslConfig, StagedBatchRequest,
+    ActiveQueryProcess, ColumnMeta, ContainerKind, ContainerResourceStat, ContainerStructure,
+    ContainerSummary, DataPageRequest, DataPageResult, FilterOperator, FilterRule, ForeignKeyEdge,
+    IndexDefinition, MutationResult, PoolStats, QueryExecutionResult, SchemaChangeAction,
+    SchemaChangeRequest, SchemaOverview, ServerResourceMetrics, SortRule, SslConfig,
+    StagedBatchRequest,
 };
 use bson::{doc, oid::ObjectId, Bson, Document};
 use futures::stream::TryStreamExt;
@@ -699,6 +700,16 @@ impl WorkspaceDriver for MongoDriver {
         })
     }
 
+    async fn create_schema(
+        &self,
+        _database: &str,
+        _schema: &str,
+    ) -> AppResult<QueryExecutionResult> {
+        Err(AppError::Validation(
+            "MongoDB does not use relational schemas. Create collections directly instead.".into(),
+        ))
+    }
+
     async fn execute_raw_query(
         &self,
         database: &str,
@@ -884,6 +895,214 @@ impl WorkspaceDriver for MongoDriver {
                 })
             }
         }
+    }
+
+    async fn collect_metrics(&self, database: &str) -> AppResult<ServerResourceMetrics> {
+        let db_name = self.resolve_db_name(database);
+        let db = self.client.database(db_name);
+        let admin_db = self.client.database("admin");
+        let mut metrics = ServerResourceMetrics::default();
+
+        // 1. dbStats for current database
+        match db.run_command(doc! { "dbStats": 1 }).await {
+            Ok(doc) => {
+                let data_size = bson_doc_u64(&doc, "dataSize").unwrap_or(0);
+                let index_size = bson_doc_u64(&doc, "indexSize").unwrap_or(0);
+                let storage_size = bson_doc_u64(&doc, "storageSize").unwrap_or(0);
+                metrics.database_size_bytes = Some(storage_size.max(data_size) + index_size);
+            }
+            Err(e) => {
+                metrics
+                    .warnings
+                    .push(format!("Could not run dbStats: {e}"));
+            }
+        }
+
+        // 2. serverStatus (requires clusterMonitor or admin privileges on managed Atlas clusters)
+        match admin_db.run_command(doc! { "serverStatus": 1 }).await {
+            Ok(doc) => {
+                if let Ok(ver) = doc.get_str("version") {
+                    metrics.version = Some(format!("MongoDB {ver}"));
+                }
+                metrics.uptime_seconds = bson_doc_u64(&doc, "uptime");
+
+                if let Ok(conns) = doc.get_document("connections") {
+                    let current = bson_doc_u64(conns, "current");
+                    let available = bson_doc_u64(conns, "available");
+                    let active = bson_doc_u64(conns, "active").or(current);
+                    metrics.active_connections = active;
+                    if let (Some(curr), Some(act)) = (current, active) {
+                        metrics.idle_connections = Some(curr.saturating_sub(act));
+                    }
+                    if let (Some(curr), Some(avail)) = (current, available) {
+                        metrics.max_connections = Some(curr + avail);
+                    }
+                }
+
+                if let Ok(mem) = doc.get_document("mem") {
+                    metrics.memory_mb = bson_doc_f64(mem, "resident");
+                }
+
+                if let Ok(ops) = doc.get_document("opcounters") {
+                    let query = bson_doc_u64(ops, "query").unwrap_or(0);
+                    let getmore = bson_doc_u64(ops, "getmore").unwrap_or(0);
+                    let insert = bson_doc_u64(ops, "insert").unwrap_or(0);
+                    let update = bson_doc_u64(ops, "update").unwrap_or(0);
+                    let delete = bson_doc_u64(ops, "delete").unwrap_or(0);
+                    let command = bson_doc_u64(ops, "command").unwrap_or(0);
+                    let reads = query + getmore;
+                    let writes = insert + update + delete;
+                    metrics.total_reads = Some(reads);
+                    metrics.total_writes = Some(writes);
+                    metrics.total_operations = Some(reads + writes + command);
+                }
+
+                if let Ok(wt) = doc.get_document("wiredTiger") {
+                    if let Ok(cache) = wt.get_document("cache") {
+                        let bytes_in_cache =
+                            bson_doc_f64(cache, "bytes currently in the cache").unwrap_or(0.0);
+                        let max_bytes =
+                            bson_doc_f64(cache, "maximum bytes configured").unwrap_or(0.0);
+                        if max_bytes > 0.0 {
+                            // Report cache utilization complement or hit proxy if available
+                            let pages_read =
+                                bson_doc_f64(cache, "pages read into cache").unwrap_or(0.0);
+                            let pages_requested =
+                                bson_doc_f64(cache, "pages requested from the cache")
+                                    .unwrap_or(0.0);
+                            if pages_requested > 0.0 {
+                                let ratio =
+                                    ((pages_requested - pages_read).max(0.0) / pages_requested)
+                                        * 100.0;
+                                metrics.cache_hit_ratio = Some(ratio.clamp(0.0, 100.0));
+                            } else if bytes_in_cache > 0.0 {
+                                metrics.cache_hit_ratio =
+                                    Some((bytes_in_cache / max_bytes * 100.0).clamp(0.0, 100.0));
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // Fallback: try buildInfo for version
+                if let Ok(info) = db.run_command(doc! { "buildInfo": 1 }).await {
+                    if let Ok(ver) = info.get_str("version") {
+                        metrics.version = Some(format!("MongoDB {ver}"));
+                    }
+                }
+                metrics.warnings.push(
+                    "serverStatus requires clusterMonitor privilege; showing database-scoped stats."
+                        .into(),
+                );
+            }
+        }
+
+        // 3. Active operations via currentOp (optional privilege)
+        match admin_db
+            .run_command(doc! { "currentOp": 1, "active": true })
+            .await
+        {
+            Ok(doc) => {
+                if let Ok(inprog) = doc.get_array("inprog") {
+                    let mut active_ops = Vec::new();
+                    for item in inprog.iter().take(25) {
+                        if let Some(op_doc) = item.as_document() {
+                            let op_type = op_doc.get_str("op").unwrap_or("op");
+                            let ns = op_doc.get_str("ns").unwrap_or("");
+                            let cmd_str = op_doc
+                                .get_document("command")
+                                .ok()
+                                .map(|d| document_to_clean_json(d).to_string())
+                                .unwrap_or_else(|| format!("{op_type} on {ns}"));
+                            if cmd_str.contains("\"currentOp\"") {
+                                continue;
+                            }
+                            let duration_ms = bson_doc_u64(op_doc, "microsecs_running")
+                                .map(|us| us / 1000)
+                                .or_else(|| bson_doc_u64(op_doc, "secs_running").map(|s| s * 1000))
+                                .unwrap_or(0);
+                            let id = op_doc
+                                .get("opid")
+                                .map(|v| bson_to_clean_json(v).to_string())
+                                .unwrap_or_else(|| "op".into());
+                            let user = op_doc
+                                .get_array("effectiveUsers")
+                                .ok()
+                                .and_then(|arr| arr.first())
+                                .and_then(|u| u.as_document())
+                                .and_then(|u| u.get_str("user").ok())
+                                .map(|s| s.to_string());
+                            active_ops.push(ActiveQueryProcess {
+                                id,
+                                user,
+                                database: ns.split('.').next().map(|s| s.to_string()),
+                                state: Some(op_type.to_string()),
+                                duration_ms,
+                                query: cmd_str.chars().take(500).collect(),
+                                wait_event: None,
+                            });
+                        }
+                    }
+                    metrics.active_queries = active_ops;
+                }
+            }
+            Err(_) => {
+                // Non-fatal: many hosted MongoDB users do not have inprog/currentOp role
+            }
+        }
+
+        // 4. Top collections by storage size (inspect up to 30 collections to stay fast)
+        if let Ok(names) = db.list_collection_names().await {
+            let mut stats_list = Vec::new();
+            for col_name in names.into_iter().take(30) {
+                if let Ok(stat_doc) = db.run_command(doc! { "collStats": &col_name }).await {
+                    let data_bytes = bson_doc_u64(&stat_doc, "size").unwrap_or(0);
+                    let index_bytes = bson_doc_u64(&stat_doc, "totalIndexSize").unwrap_or(0);
+                    let storage_bytes = bson_doc_u64(&stat_doc, "storageSize").unwrap_or(data_bytes);
+                    let count = bson_doc_u64(&stat_doc, "count");
+                    stats_list.push(ContainerResourceStat {
+                        name: col_name,
+                        schema: None,
+                        total_size_bytes: storage_bytes.max(data_bytes) + index_bytes,
+                        data_size_bytes: data_bytes,
+                        index_size_bytes: index_bytes,
+                        estimated_rows: count,
+                    });
+                }
+            }
+            stats_list.sort_by(|a, b| b.total_size_bytes.cmp(&a.total_size_bytes));
+            stats_list.truncate(10);
+            metrics.top_containers = stats_list;
+        }
+
+        Ok(metrics)
+    }
+
+    async fn pool_stats(&self) -> PoolStats {
+        PoolStats {
+            active: 0,
+            idle: 0,
+            max: 100,
+            tracked: false,
+        }
+    }
+}
+
+fn bson_doc_u64(doc: &Document, key: &str) -> Option<u64> {
+    match doc.get(key)? {
+        Bson::Int32(i) => Some((*i).max(0) as u64),
+        Bson::Int64(i) => Some((*i).max(0) as u64),
+        Bson::Double(f) => Some(f.max(0.0) as u64),
+        _ => None,
+    }
+}
+
+fn bson_doc_f64(doc: &Document, key: &str) -> Option<f64> {
+    match doc.get(key)? {
+        Bson::Int32(i) => Some(*i as f64),
+        Bson::Int64(i) => Some(*i as f64),
+        Bson::Double(f) => Some(*f),
+        _ => None,
     }
 }
 

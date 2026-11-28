@@ -23,6 +23,7 @@ interface SidebarObjectsSectionProps {
   workspace: WorkspaceConfig;
   activeDb: string;
   containers: ContainerSummary[];
+  schemas?: string[];
   isLoading: boolean;
   hasOverview: boolean;
 }
@@ -31,19 +32,32 @@ export function SidebarObjectsSection({
   workspace,
   activeDb,
   containers,
+  schemas = [],
   isLoading,
   hasOverview,
 }: SidebarObjectsSectionProps) {
-  const { openTab, refreshSchema, setImportExportTarget, pushToast } =
+  const { openTab, refreshSchema, createSchema, setImportExportTarget, pushToast } =
     useWorkspaceStore();
 
+  const supportsSchemas = workspace.engine === "postgres";
   const [filter, setFilter] = useState("");
+  const [selectedSchemaFilter, setSelectedSchemaFilter] = useState<string>("all");
   const [creatingContainer, setCreatingContainer] = useState(false);
+  const [creationMode, setCreationMode] = useState<"table" | "schema">("table");
   const [newContainerName, setNewContainerName] = useState("");
   const [newSchemaName, setNewSchemaName] = useState("public");
+  const [newCustomSchema, setNewCustomSchema] = useState("");
   const [creatingBusy, setCreatingBusy] = useState(false);
+  const [creatingSchemaBusy, setCreatingSchemaBusy] = useState(false);
 
   const filteredContainers = containers.filter((c) => {
+    if (
+      supportsSchemas &&
+      selectedSchemaFilter !== "all" &&
+      (c.schema || "public") !== selectedSchemaFilter
+    ) {
+      return false;
+    }
     if (!filter.trim()) return true;
     const q = filter.toLowerCase();
     return (
@@ -144,6 +158,35 @@ export function SidebarObjectsSection({
     }
   };
 
+  const handleCreateSchema = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newCustomSchema.trim();
+    if (!name || creatingSchemaBusy) return;
+
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      pushToast({
+        kind: "error",
+        title: "Invalid schema name",
+        message:
+          "Schema name must start with a letter or underscore and contain only alphanumeric characters or underscores.",
+      });
+      return;
+    }
+
+    setCreatingSchemaBusy(true);
+    try {
+      await createSchema(workspace.id, activeDb, name);
+      setCreatingContainer(false);
+      setNewCustomSchema("");
+      setSelectedSchemaFilter(name);
+      setNewSchemaName(name);
+    } catch {
+      // Toast error handled in store
+    } finally {
+      setCreatingSchemaBusy(false);
+    }
+  };
+
   return (
     <>
       {/* Filter + New Table/Collection Bar */}
@@ -173,6 +216,8 @@ export function SidebarObjectsSection({
             title={
               workspace.engine === "mongodb"
                 ? "Create New Collection"
+                : supportsSchemas
+                ? "Create New Table or Schema"
                 : "Create New Table"
             }
             className="p-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-colors"
@@ -182,65 +227,199 @@ export function SidebarObjectsSection({
         )}
       </div>
 
-      {/* Inline Create Table / Collection Form */}
-      {creatingContainer && (
-        <form
-          autoComplete="off"
-          onSubmit={(e) => void handleCreateContainer(e)}
-          className="p-3 bg-zinc-900/90 border-b border-zinc-800 space-y-2"
-        >
-          <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
-            <span>
-              {workspace.engine === "mongodb"
-                ? "New Collection"
-                : "Quick Create Table"}
-            </span>
-            <button
-              type="button"
-              onClick={() => setCreatingContainer(false)}
-              className="text-zinc-400 hover:text-zinc-200"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          {workspace.engine === "postgres" && (
-            <input
-              type="text"
-              value={newSchemaName}
-              onChange={(e) => setNewSchemaName(e.target.value)}
-              placeholder="Schema (default: public)"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
-            />
-          )}
-          <input
-            type="text"
-            value={newContainerName}
-            onChange={(e) => setNewContainerName(e.target.value)}
-            placeholder={
-              workspace.engine === "mongodb"
-                ? "Collection name (e.g. events)"
-                : "Table name (e.g. customers)"
-            }
-            autoFocus
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
-          />
-          <button
-            type="submit"
-            disabled={creatingBusy || !newContainerName.trim()}
-            className="w-full py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+      {/* Schema Filter Bar (Only shown for engines supporting schemas when schemas exist) */}
+      {supportsSchemas && schemas.length > 1 && (
+        <div className="px-3 py-1.5 border-b border-zinc-800/40 flex items-center justify-between text-[11px] bg-zinc-950/40">
+          <span className="text-zinc-500 font-medium">Schema:</span>
+          <select
+            value={selectedSchemaFilter}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedSchemaFilter(val);
+              if (val !== "all") {
+                setNewSchemaName(val);
+              }
+            }}
+            className="bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-zinc-300 text-xs font-mono focus:outline-none focus:border-emerald-500/50"
           >
-            {creatingBusy && <Loader2 className="w-3 h-3 animate-spin" />}
-            Create
-          </button>
-        </form>
+            <option value="all">All Schemas ({containers.length})</option>
+            {schemas.map((s) => {
+              const count = containers.filter(
+                (c) => (c.schema || "public") === s
+              ).length;
+              return (
+                <option key={s} value={s}>
+                  {s} ({count})
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
+
+      {/* Inline Create Table / Schema Form */}
+      {creatingContainer && (
+        <div className="p-3 bg-zinc-900/90 border-b border-zinc-800 space-y-2">
+          {/* Engine supporting schemas: show toggle tabs between Table and Schema */}
+          {supportsSchemas && (
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-zinc-950 border border-zinc-800 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setCreationMode("table")}
+                className={`flex-1 py-1 rounded-md font-medium transition-colors ${
+                  creationMode === "table"
+                    ? "bg-zinc-800 text-zinc-100 shadow-xs"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Table
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreationMode("schema")}
+                className={`flex-1 py-1 rounded-md font-medium transition-colors ${
+                  creationMode === "schema"
+                    ? "bg-zinc-800 text-zinc-100 shadow-xs"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Schema
+              </button>
+            </div>
+          )}
+
+          {/* Table / Collection Creation Mode */}
+          {(!supportsSchemas || creationMode === "table") && (
+            <form
+              autoComplete="off"
+              onSubmit={(e) => void handleCreateContainer(e)}
+              className="space-y-2"
+            >
+              <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
+                <span>
+                  {workspace.engine === "mongodb"
+                    ? "New Collection"
+                    : "Quick Create Table"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCreatingContainer(false)}
+                  className="text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {supportsSchemas && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                    <span>Target Schema</span>
+                    <button
+                      type="button"
+                      onClick={() => setCreationMode("schema")}
+                      className="text-emerald-400 hover:underline text-[10px]"
+                    >
+                      + New Schema
+                    </button>
+                  </div>
+                  {schemas.length > 0 ? (
+                    <select
+                      value={newSchemaName}
+                      onChange={(e) => setNewSchemaName(e.target.value)}
+                      className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
+                    >
+                      {schemas.map((s) => (
+                        <option key={s} value={s}>
+                          schema: {s}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={newSchemaName}
+                      onChange={(e) => setNewSchemaName(e.target.value)}
+                      placeholder="Schema (default: public)"
+                      autoComplete="off"
+                      className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
+                    />
+                  )}
+                </div>
+              )}
+
+              <input
+                type="text"
+                value={newContainerName}
+                onChange={(e) => setNewContainerName(e.target.value)}
+                placeholder={
+                  workspace.engine === "mongodb"
+                    ? "Collection name (e.g. events)"
+                    : "Table name (e.g. customers)"
+                }
+                autoFocus
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
+              />
+              <button
+                type="submit"
+                disabled={creatingBusy || !newContainerName.trim()}
+                className="w-full py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              >
+                {creatingBusy && <Loader2 className="w-3 h-3 animate-spin" />}
+                Create Table
+              </button>
+            </form>
+          )}
+
+          {/* Schema Creation Mode (PostgreSQL only) */}
+          {supportsSchemas && creationMode === "schema" && (
+            <form
+              autoComplete="off"
+              onSubmit={(e) => void handleCreateSchema(e)}
+              className="space-y-2"
+            >
+              <div className="flex items-center justify-between text-xs font-semibold text-zinc-200">
+                <span>Create New Schema</span>
+                <button
+                  type="button"
+                  onClick={() => setCreatingContainer(false)}
+                  className="text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <p className="text-[11px] text-zinc-400">
+                Create a schema namespace in <span className="font-mono text-zinc-200">{activeDb}</span>.
+              </p>
+
+              <input
+                type="text"
+                value={newCustomSchema}
+                onChange={(e) => setNewCustomSchema(e.target.value)}
+                placeholder="Schema name (e.g. analytics, billing, auth)"
+                autoFocus
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                className="w-full px-2.5 py-1 rounded-md bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-200 focus:outline-none focus:border-emerald-500/60"
+              />
+
+              <button
+                type="submit"
+                disabled={creatingSchemaBusy || !newCustomSchema.trim()}
+                className="w-full py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              >
+                {creatingSchemaBusy && <Loader2 className="w-3 h-3 animate-spin" />}
+                Create Schema
+              </button>
+            </form>
+          )}
+        </div>
       )}
 
       {/* Containers List */}
@@ -251,9 +430,29 @@ export function SidebarObjectsSection({
             <span>Introspecting schema...</span>
           </div>
         ) : filteredContainers.length === 0 ? (
-          <div className="py-10 px-4 text-center text-xs text-zinc-500">
-            No {workspace.engine === "mongodb" ? "collections" : "tables"} found
-            in <span className="font-mono">{activeDb}</span>.
+          <div className="py-10 px-4 text-center text-xs text-zinc-500 space-y-2">
+            <div>
+              No {workspace.engine === "mongodb" ? "collections" : "tables"} found
+              {selectedSchemaFilter !== "all" ? (
+                <> in schema <span className="font-mono text-zinc-300">{selectedSchemaFilter}</span></>
+              ) : (
+                <> in <span className="font-mono text-zinc-300">{activeDb}</span></>
+              )}.
+            </div>
+            {supportsSchemas && selectedSchemaFilter !== "all" && workspace.safetyMode !== "read_only" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewSchemaName(selectedSchemaFilter);
+                  setCreationMode("table");
+                  setCreatingContainer(true);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 text-emerald-400 border border-zinc-800 text-xs transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Create table in {selectedSchemaFilter}</span>
+              </button>
+            )}
           </div>
         ) : (
           filteredContainers.map((item) => {

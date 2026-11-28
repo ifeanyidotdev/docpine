@@ -1,0 +1,93 @@
+name: Nightly Build & Release
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+jobs:
+  build-nightly:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            rust_target: 'aarch64-apple-darwin'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-15-intel'
+            rust_target: 'x86_64-apple-darwin'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'windows-latest'
+            args: '--bundles nsis'
+          - platform: 'ubuntu-22.04'
+            args: '--bundles deb,appimage'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target || '' }}
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Configure Nightly version and updater endpoint
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const conf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+
+            const baseVersion = (pkg.version || "0.1.0").split("-")[0];
+            const nightlyVersion = `${baseVersion}-nightly.${{ github.run_number }}`;
+
+            conf.version = nightlyVersion;
+            pkg.version = nightlyVersion;
+
+            if (conf.plugins && conf.plugins.updater) {
+              conf.plugins.updater.endpoints = ["https://github.com/ifeanyidotdev/docpine/releases/download/nightly/latest.json"];
+            }
+
+            fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(conf, null, 2));
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+
+            // Also update src-tauri/Cargo.toml package version
+            let cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+            cargo = cargo.replace(/^version = "[^"]*"/m, `version = "${nightlyVersion}"`);
+            fs.writeFileSync("src-tauri/Cargo.toml", cargo);
+
+            console.log("Configured Nightly build version:", nightlyVersion);
+          '
+
+      - name: Build Nightly with Tauri Action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: nightly
+          releaseName: 'Docpine (Nightly)'
+          releaseBody: 'Automated nightly pre-release build from branch dev.'
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}

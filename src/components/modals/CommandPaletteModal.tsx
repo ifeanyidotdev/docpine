@@ -5,6 +5,7 @@ import {
   Table2,
   Terminal,
   Network,
+  Activity,
   Plus,
   GitCommitHorizontal,
   X,
@@ -16,6 +17,7 @@ export function CommandPaletteModal() {
     commandPaletteOpen,
     setCommandPaletteOpen,
     workspaces,
+    folders,
     activeWorkspaceId,
     activeDatabaseByWorkspace,
     schemaByWorkspaceDb,
@@ -81,6 +83,20 @@ export function CommandPaletteModal() {
     });
 
     actions.push({
+      id: "open-monitor",
+      label: `Open Resource Monitor & Observability (${activeDb})`,
+      category: "Workspace Action",
+      icon: <Activity className="w-4 h-4 text-cyan-400" />,
+      run: () => {
+        openTab(activeWs.id, {
+          kind: "monitor",
+          title: `Monitor (${activeDb})`,
+          database: activeDb,
+        });
+      },
+    });
+
+    actions.push({
       id: "toggle-commit",
       label: `Switch Commit Mode to ${
         activeWs.commitMode === "staged" ? "Immediate Mode" : "Staged Diff Mode"
@@ -115,11 +131,14 @@ export function CommandPaletteModal() {
     }
   }
 
+  const folderNameById = new Map(folders.map((f) => [f.id, f.name]));
+
   for (const ws of workspaces) {
+    const folderName = ws.folderId ? folderNameById.get(ws.folderId) : null;
     actions.push({
       id: `ws-${ws.id}`,
-      label: `Switch to Workspace: ${ws.name} (${ws.engine.toUpperCase()})`,
-      category: "Workspaces",
+      label: `Switch to Workspace: ${folderName ? `${folderName} / ` : ""}${ws.name} (${ws.engine.toUpperCase()})`,
+      category: folderName ? `Folder • ${folderName}` : "Workspaces",
       icon: <Database className="w-4 h-4 text-sky-400" />,
       run: () => {
         void selectWorkspace(ws.id);

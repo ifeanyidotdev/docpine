@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from "react";
+import { TrafficLightBar } from "./components/shell/TrafficLightBar";
 import { WorkspaceRail } from "./components/shell/WorkspaceRail";
 import { WorkspaceLaunchpad } from "./components/shell/WorkspaceLaunchpad";
 import { ActiveWorkspaceView } from "./components/workspace/ActiveWorkspaceView";
 import { WorkspaceConnectionModal } from "./components/modals/WorkspaceConnectionModal";
+import { WorkspaceFolderModal } from "./components/modals/WorkspaceFolderModal";
 import { CommandPaletteModal } from "./components/modals/CommandPaletteModal";
 import { ImportExportModal } from "./components/io/ImportExportModal";
 import { useWorkspaceStore } from "./store/useWorkspaceStore";
+import { useUpdateStore } from "./store/useUpdateStore";
 import { CheckCircle2, AlertCircle, Info, X } from "lucide-react";
 
 export default function App() {
@@ -19,9 +22,16 @@ export default function App() {
     dismissToast,
   } = useWorkspaceStore();
 
+  const { startBackgroundCheckAndDownload } = useUpdateStore();
+
   useEffect(() => {
     void loadWorkspaces();
-  }, [loadWorkspaces]);
+    // Silently check for updates in background
+    const timer = setTimeout(() => {
+      void startBackgroundCheckAndDownload();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [loadWorkspaces, startBackgroundCheckAndDownload]);
 
   // Global keyboard shortcuts: Cmd+K (Command Palette), Cmd+0 (Launchpad), Cmd+1..9 (Switch Workspace)
   useEffect(() => {
@@ -65,26 +75,32 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen w-screen flex bg-zinc-950 text-zinc-100 overflow-hidden">
-      {/* Left Dock: Workspace Switcher Rail */}
-      <WorkspaceRail />
+    <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
+      {/* Top window bar: traffic lights + Restart to Update button */}
+      <TrafficLightBar />
 
-      {/* Main Content: Home Launchpad or isolated (persisted) Workspace Views */}
-      {!activeWorkspace && <WorkspaceLaunchpad />}
-      {mountedWorkspaces.map((ws) => {
-        const visible = ws.id === activeWorkspace?.id;
-        return (
-          <div
-            key={ws.id}
-            className={visible ? "flex-1 flex overflow-hidden" : "hidden"}
-          >
-            <ActiveWorkspaceView workspace={ws} isVisible={visible} />
-          </div>
-        );
-      })}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Dock: Workspace Switcher Rail */}
+        <WorkspaceRail />
+
+        {/* Main Content: Home Launchpad or isolated (persisted) Workspace Views */}
+        {!activeWorkspace && <WorkspaceLaunchpad />}
+        {mountedWorkspaces.map((ws) => {
+          const visible = ws.id === activeWorkspace?.id;
+          return (
+            <div
+              key={ws.id}
+              className={visible ? "flex-1 flex overflow-hidden" : "hidden"}
+            >
+              <ActiveWorkspaceView workspace={ws} isVisible={visible} />
+            </div>
+          );
+        })}
+      </div>
 
       {/* Global Modals */}
       <WorkspaceConnectionModal />
+      <WorkspaceFolderModal />
       <CommandPaletteModal />
       <ImportExportModal />
 

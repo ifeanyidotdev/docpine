@@ -114,6 +114,7 @@ export function WorkspaceSidebar({ workspace }: WorkspaceSidebarProps) {
           workspace={workspace}
           activeDb={activeDb}
           containers={overview?.containers || []}
+          schemas={overview?.schemas || []}
           isLoading={isLoading}
           hasOverview={Boolean(overview)}
         />

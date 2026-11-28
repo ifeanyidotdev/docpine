@@ -1,16 +1,19 @@
 import { create } from "zustand";
 import { ipc, parseAppError } from "../lib/ipc";
+import { useObservabilityStore } from "./useObservabilityStore";
 import type {
   CommitMode,
   DataViewMode,
   QueryHistoryRecord,
   RecordUpdate,
   SafetyMode,
+  SaveWorkspaceFolderInput,
   SaveWorkspaceInput,
   SavedQueryRecord,
   SchemaOverview,
   TabStagedState,
   WorkspaceConfig,
+  WorkspaceFolder,
   WorkspaceTab,
   WorkspaceTabKind,
 } from "../types/docpine";
@@ -39,6 +42,8 @@ export interface ImportExportModalTarget {
 
 interface WorkspaceStoreState {
   workspaces: WorkspaceConfig[];
+  folders: WorkspaceFolder[];
+  expandedFolderIds: Record<string, boolean>;
   activeWorkspaceId: string | null;
   connectionStatus: Record<string, ConnectionStatus>;
   connectionLatency: Record<string, number | undefined>;
@@ -60,6 +65,9 @@ interface WorkspaceStoreState {
 
   connectionModalOpen: boolean;
   editingWorkspace: WorkspaceConfig | null;
+  defaultFolderIdForNewWorkspace: string | null;
+  folderModalOpen: boolean;
+  editingFolder: WorkspaceFolder | null;
   commandPaletteOpen: boolean;
   importExportTarget: ImportExportModalTarget | null;
   toasts: ToastNotice[];
@@ -67,8 +75,20 @@ interface WorkspaceStoreState {
   // Actions
   loadWorkspaces: () => Promise<void>;
   selectWorkspace: (workspaceId: string | null) => Promise<void>;
-  openConnectionModal: (workspace?: WorkspaceConfig | null) => void;
+  openConnectionModal: (
+    workspace?: WorkspaceConfig | null,
+    defaultFolderId?: string | null
+  ) => void;
   closeConnectionModal: () => void;
+  openFolderModal: (folder?: WorkspaceFolder | null) => void;
+  closeFolderModal: () => void;
+  saveFolder: (input: SaveWorkspaceFolderInput) => Promise<WorkspaceFolder>;
+  deleteFolder: (folderId: string) => Promise<void>;
+  moveWorkspaceToFolder: (
+    workspaceId: string,
+    folderId: string | null
+  ) => Promise<void>;
+  toggleFolderExpanded: (folderId: string) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setImportExportTarget: (target: ImportExportModalTarget | null) => void;
 
@@ -84,6 +104,11 @@ interface WorkspaceStoreState {
   disconnectFromWorkspace: (workspaceId: string) => Promise<void>;
   switchDatabase: (workspaceId: string, database: string) => Promise<void>;
   refreshSchema: (workspaceId: string, database?: string) => Promise<void>;
+  createSchema: (
+    workspaceId: string,
+    database: string,
+    schema: string
+  ) => Promise<void>;
   updateContainerRowCount: (
     workspaceId: string,
     database: string,
@@ -165,12 +190,33 @@ const emptyStaged = (): TabStagedState => ({
   deletes: {},
 });
 
+const EXPANDED_FOLDERS_STORAGE_KEY = "docpine.expandedFolders";
+
+function loadExpandedFolders(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_FOLDERS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveExpandedFolders(map: Record<string, boolean>) {
+  try {
+    localStorage.setItem(EXPANDED_FOLDERS_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
 function persistTabs(workspaceId: string, tabs: WorkspaceTab[]) {
   void ipc.saveWorkspaceTabs(workspaceId, JSON.stringify(tabs));
 }
 
 export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   workspaces: [],
+  folders: [],
+  expandedFolderIds: loadExpandedFolders(),
   activeWorkspaceId: null,
   connectionStatus: {},
   connectionLatency: {},
@@ -192,14 +238,20 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   connectionModalOpen: false,
   editingWorkspace: null,
+  defaultFolderIdForNewWorkspace: null,
+  folderModalOpen: false,
+  editingFolder: null,
   commandPaletteOpen: false,
   importExportTarget: null,
   toasts: [],
 
   loadWorkspaces: async () => {
     try {
-      const list = await ipc.listWorkspaces();
-      set({ workspaces: list });
+      const [list, folders] = await Promise.all([
+        ipc.listWorkspaces(),
+        ipc.listWorkspaceFolders(),
+      ]);
+      set({ workspaces: list, folders });
     } catch (err) {
       const parsed = parseAppError(err);
       get().pushToast({
@@ -216,6 +268,16 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
     const ws = get().workspaces.find((w) => w.id === workspaceId);
     if (!ws) return;
+
+    // Auto-expand the workspace's folder so the active workspace is visible in the Rail
+    if (ws.folderId && !get().expandedFolderIds[ws.folderId]) {
+      const nextExpanded = {
+        ...get().expandedFolderIds,
+        [ws.folderId]: true,
+      };
+      saveExpandedFolders(nextExpanded);
+      set({ expandedFolderIds: nextExpanded });
+    }
 
     // Restore persisted tabs if not loaded yet
     if (!get().tabsByWorkspace[workspaceId]) {
@@ -266,12 +328,99 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     }
   },
 
-  openConnectionModal: (workspace = null) => {
-    set({ connectionModalOpen: true, editingWorkspace: workspace });
+  openConnectionModal: (workspace = null, defaultFolderId = null) => {
+    set({
+      connectionModalOpen: true,
+      editingWorkspace: workspace,
+      defaultFolderIdForNewWorkspace: workspace ? null : defaultFolderId,
+    });
   },
 
   closeConnectionModal: () => {
-    set({ connectionModalOpen: false, editingWorkspace: null });
+    set({
+      connectionModalOpen: false,
+      editingWorkspace: null,
+      defaultFolderIdForNewWorkspace: null,
+    });
+  },
+
+  openFolderModal: (folder = null) => {
+    set({ folderModalOpen: true, editingFolder: folder });
+  },
+
+  closeFolderModal: () => {
+    set({ folderModalOpen: false, editingFolder: null });
+  },
+
+  saveFolder: async (input) => {
+    const saved = await ipc.saveWorkspaceFolder(input);
+    const folders = await ipc.listWorkspaceFolders();
+    const nextExpanded = {
+      ...get().expandedFolderIds,
+      [saved.id]: true,
+    };
+    saveExpandedFolders(nextExpanded);
+    set({
+      folders,
+      expandedFolderIds: nextExpanded,
+      folderModalOpen: false,
+      editingFolder: null,
+    });
+    get().pushToast({
+      kind: "success",
+      title: input.id ? "Folder updated" : "Folder created",
+      message: saved.name,
+    });
+    return saved;
+  },
+
+  deleteFolder: async (folderId) => {
+    await ipc.deleteWorkspaceFolder(folderId);
+    const [list, folders] = await Promise.all([
+      ipc.listWorkspaces(),
+      ipc.listWorkspaceFolders(),
+    ]);
+    const nextExpanded = { ...get().expandedFolderIds };
+    delete nextExpanded[folderId];
+    saveExpandedFolders(nextExpanded);
+    set({
+      workspaces: list,
+      folders,
+      expandedFolderIds: nextExpanded,
+    });
+    get().pushToast({
+      kind: "info",
+      title: "Folder deleted",
+      message: "Workspaces inside were moved to Ungrouped.",
+    });
+  },
+
+  moveWorkspaceToFolder: async (workspaceId, folderId) => {
+    const updated = await ipc.moveWorkspaceToFolder(workspaceId, folderId);
+    const nextExpanded =
+      folderId && !get().expandedFolderIds[folderId]
+        ? { ...get().expandedFolderIds, [folderId]: true }
+        : get().expandedFolderIds;
+    if (nextExpanded !== get().expandedFolderIds) {
+      saveExpandedFolders(nextExpanded);
+    }
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.id === workspaceId ? updated : w
+      ),
+      expandedFolderIds: nextExpanded,
+    }));
+  },
+
+  toggleFolderExpanded: (folderId) => {
+    set((s) => {
+      const next = {
+        ...s.expandedFolderIds,
+        [folderId]: !s.expandedFolderIds[folderId],
+      };
+      saveExpandedFolders(next);
+      return { expandedFolderIds: next };
+    });
   },
 
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
@@ -296,6 +445,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   deleteWorkspace: async (workspaceId) => {
     await ipc.deleteWorkspace(workspaceId);
+    useObservabilityStore.getState().clearWorkspaceSamples(workspaceId);
     const list = await ipc.listWorkspaces();
     set((s) => ({
       workspaces: list,
@@ -377,6 +527,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
 
   disconnectFromWorkspace: async (workspaceId) => {
     await ipc.disconnectWorkspace(workspaceId);
+    useObservabilityStore.getState().clearWorkspaceSamples(workspaceId);
     set((s) => ({
       connectionStatus: {
         ...s.connectionStatus,
@@ -486,6 +637,26 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     }
   },
 
+  createSchema: async (workspaceId, database, schema) => {
+    try {
+      await ipc.createSchema(workspaceId, database, schema);
+      await get().refreshSchema(workspaceId, database);
+      get().pushToast({
+        kind: "success",
+        title: "Schema created",
+        message: `Created schema "${schema}" in ${database}`,
+      });
+    } catch (err) {
+      const parsed = parseAppError(err);
+      get().pushToast({
+        kind: "error",
+        title: "Failed to create schema",
+        message: parsed.message,
+      });
+      throw err;
+    }
+  },
+
   updateContainerRowCount: (workspaceId, database, container, schema, rowCount) => {
     const cacheKey = `${workspaceId}:${database}`;
     set((s) => {
@@ -542,22 +713,22 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
         return found.id;
       }
     }
-    if (finalTabInput.kind === "erd") {
-      const foundErd = existing.find(
-        (t) => t.kind === "erd" && t.database === db
+    if (finalTabInput.kind === "erd" || finalTabInput.kind === "monitor") {
+      const foundSingleton = existing.find(
+        (t) => t.kind === finalTabInput.kind && t.database === db
       );
-      if (foundErd) {
+      if (foundSingleton) {
         set((s) => ({
           activeTabIdByWorkspace: {
             ...s.activeTabIdByWorkspace,
-            [workspaceId]: foundErd.id,
+            [workspaceId]: foundSingleton.id,
           },
           activeTabIdByWorkspaceDb: {
             ...s.activeTabIdByWorkspaceDb,
-            [`${workspaceId}:${db}`]: foundErd.id,
+            [`${workspaceId}:${db}`]: foundSingleton.id,
           },
         }));
-        return foundErd.id;
+        return foundSingleton.id;
       }
     }
 

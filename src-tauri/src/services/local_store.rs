@@ -1,7 +1,9 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    CommitMode, DatabaseEngine, EnvironmentTag, QueryHistoryRecord, SafetyMode, SavedQueryRecord,
-    SaveWorkspaceInput, SshTunnelConfig, SslConfig, WorkspaceConfig, WorkspaceCredentials,
+    ClientWorkspaceTelemetry, CommitMode, DatabaseEngine, EnvironmentTag, PoolStats,
+    QueryHistoryRecord, QueryLatencyPoint, SafetyMode, SaveWorkspaceFolderInput,
+    SaveWorkspaceInput, SavedQueryRecord, SshTunnelConfig, SslConfig, WorkspaceConfig,
+    WorkspaceCredentials, WorkspaceFolder,
 };
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -50,6 +52,13 @@ impl LocalStore {
 
         conn.execute_batch(
             r#"
+            CREATE TABLE IF NOT EXISTS workspace_folders (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                color TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS workspaces (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -65,6 +74,7 @@ impl LocalStore {
                 commit_mode TEXT NOT NULL,
                 ssl_json TEXT NOT NULL,
                 ssh_json TEXT NOT NULL,
+                folder_id TEXT,
                 created_at TEXT NOT NULL,
                 last_opened_at TEXT
             );
@@ -104,6 +114,16 @@ impl LocalStore {
             "#,
         )?;
 
+        // Idempotent migration for existing installations created before workspace folders existed
+        let mut pragma_stmt = conn.prepare("PRAGMA table_info(workspaces)")?;
+        let has_folder_id = pragma_stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .any(|col| col == "folder_id");
+        if !has_folder_id {
+            conn.execute("ALTER TABLE workspaces ADD COLUMN folder_id TEXT", [])?;
+        }
+
         Ok(())
     }
 
@@ -117,7 +137,7 @@ impl LocalStore {
             r#"
             SELECT id, name, engine, host, port, username, default_database, connection_uri,
                    environment, accent_color, safety_mode, commit_mode, ssl_json, ssh_json,
-                   created_at, last_opened_at
+                   created_at, last_opened_at, folder_id
             FROM workspaces
             ORDER BY COALESCE(last_opened_at, created_at) DESC
             "#,
@@ -141,7 +161,7 @@ impl LocalStore {
             r#"
             SELECT id, name, engine, host, port, username, default_database, connection_uri,
                    environment, accent_color, safety_mode, commit_mode, ssl_json, ssh_json,
-                   created_at, last_opened_at
+                   created_at, last_opened_at, folder_id
             FROM workspaces
             WHERE id = ?1
             "#,
@@ -191,8 +211,8 @@ impl LocalStore {
                 INSERT INTO workspaces (
                     id, name, engine, host, port, username, default_database, connection_uri,
                     environment, accent_color, safety_mode, commit_mode, ssl_json, ssh_json,
-                    created_at, last_opened_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                    folder_id, created_at, last_opened_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     engine = excluded.engine,
@@ -206,7 +226,8 @@ impl LocalStore {
                     safety_mode = excluded.safety_mode,
                     commit_mode = excluded.commit_mode,
                     ssl_json = excluded.ssl_json,
-                    ssh_json = excluded.ssh_json
+                    ssh_json = excluded.ssh_json,
+                    folder_id = excluded.folder_id
                 "#,
                 params![
                     id,
@@ -223,6 +244,7 @@ impl LocalStore {
                     commit_str,
                     ssl_json,
                     ssh_json,
+                    input.folder_id,
                     created_at,
                     last_opened_at
                 ],
@@ -581,6 +603,102 @@ impl LocalStore {
         Ok(tabs)
     }
 
+    pub fn get_workspace_query_telemetry(
+        &self,
+        workspace_id: &str,
+        recent_limit: u32,
+    ) -> AppResult<ClientWorkspaceTelemetry> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Storage("Failed to lock SQLite connection".into()))?;
+
+        let (total_count, failed_count, avg_ms): (i64, i64, f64) = conn.query_row(
+            r#"
+            SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN status <> 'success' THEN 1 ELSE 0 END), 0),
+                COALESCE(AVG(CAST(execution_ms AS REAL)), 0.0)
+            FROM query_history
+            WHERE workspace_id = ?1
+            "#,
+            params![workspace_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT executed_at, execution_ms, status, database_name
+            FROM query_history
+            WHERE workspace_id = ?1
+            ORDER BY executed_at DESC
+            LIMIT ?2
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![workspace_id, recent_limit], |row| {
+            let ms: i64 = row.get(1)?;
+            Ok(QueryLatencyPoint {
+                executed_at: row.get(0)?,
+                execution_ms: ms.max(0) as u64,
+                status: row.get(2)?,
+                database: row.get(3)?,
+            })
+        })?;
+
+        let mut recent_latencies = Vec::new();
+        for r in rows {
+            recent_latencies.push(r?);
+        }
+        // Chronological order (oldest -> newest) for charts
+        recent_latencies.reverse();
+
+        // Compute P95 over recent window (up to 200 most recent executions)
+        let mut p95_stmt = conn.prepare(
+            r#"
+            SELECT execution_ms
+            FROM query_history
+            WHERE workspace_id = ?1
+            ORDER BY executed_at DESC
+            LIMIT 200
+            "#,
+        )?;
+        let mut latencies: Vec<u64> = p95_stmt
+            .query_map(params![workspace_id], |row| {
+                let ms: i64 = row.get(0)?;
+                Ok(ms.max(0) as u64)
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        latencies.sort_unstable();
+        let p95_query_ms = if latencies.is_empty() {
+            0
+        } else {
+            let idx = ((latencies.len() as f64) * 0.95).ceil() as usize;
+            latencies[idx.saturating_sub(1).min(latencies.len() - 1)]
+        };
+
+        let total_u64 = total_count.max(0) as u64;
+        let failed_u64 = failed_count.max(0) as u64;
+        let error_rate_pct = if total_u64 > 0 {
+            (failed_u64 as f64 / total_u64 as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(ClientWorkspaceTelemetry {
+            pool: PoolStats::default(),
+            ssh_tunnel_active: false,
+            ssh_local_port: None,
+            total_queries_executed: total_u64,
+            failed_queries_count: failed_u64,
+            error_rate_pct,
+            avg_query_ms: avg_ms,
+            p95_query_ms,
+            recent_latencies,
+        })
+    }
+
     fn map_workspace_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceConfig> {
         let engine_str: String = row.get(2)?;
         let port_i64: i64 = row.get(4)?;
@@ -616,9 +734,124 @@ impl LocalStore {
             commit_mode,
             ssl,
             ssh,
+            folder_id: row.get(16)?,
             created_at: row.get(14)?,
             last_opened_at: row.get(15)?,
         })
+    }
+
+    pub fn list_workspace_folders(&self) -> AppResult<Vec<WorkspaceFolder>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Storage("Failed to lock SQLite connection".into()))?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, name, color, created_at
+            FROM workspace_folders
+            ORDER BY name COLLATE NOCASE ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(WorkspaceFolder {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn save_workspace_folder(
+        &self,
+        input: SaveWorkspaceFolderInput,
+    ) -> AppResult<WorkspaceFolder> {
+        let name = input.name.trim();
+        if name.is_empty() {
+            return Err(AppError::Validation("Folder name cannot be empty".into()));
+        }
+        let now = Utc::now().to_rfc3339();
+        let id = input
+            .id
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let color = if input.color.trim().is_empty() {
+            "#6366f1".to_string()
+        } else {
+            input.color.trim().to_string()
+        };
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Storage("Failed to lock SQLite connection".into()))?;
+
+        let existing_created: Option<String> = conn
+            .query_row(
+                "SELECT created_at FROM workspace_folders WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let created_at = existing_created.unwrap_or(now);
+
+        conn.execute(
+            r#"
+            INSERT INTO workspace_folders (id, name, color, created_at)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                color = excluded.color
+            "#,
+            params![id, name, color, created_at],
+        )?;
+
+        Ok(WorkspaceFolder {
+            id,
+            name: name.to_string(),
+            color,
+            created_at,
+        })
+    }
+
+    pub fn delete_workspace_folder(&self, folder_id: &str) -> AppResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Storage("Failed to lock SQLite connection".into()))?;
+        conn.execute(
+            "UPDATE workspaces SET folder_id = NULL WHERE folder_id = ?1",
+            params![folder_id],
+        )?;
+        conn.execute(
+            "DELETE FROM workspace_folders WHERE id = ?1",
+            params![folder_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn move_workspace_to_folder(
+        &self,
+        workspace_id: &str,
+        folder_id: Option<String>,
+    ) -> AppResult<WorkspaceConfig> {
+        let normalized = folder_id.filter(|s| !s.trim().is_empty());
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|_| AppError::Storage("Failed to lock SQLite connection".into()))?;
+            conn.execute(
+                "UPDATE workspaces SET folder_id = ?1 WHERE id = ?2",
+                params![normalized, workspace_id],
+            )?;
+        }
+        self.get_workspace(workspace_id)
     }
 }
 
@@ -650,6 +883,7 @@ mod tests {
                     ca_cert_path: None,
                 },
                 ssh: SshTunnelConfig::default(),
+                folder_id: None,
                 credentials: WorkspaceCredentials {
                     db_password: Some("super_secret_pw".into()),
                     ssh_password: None,
@@ -717,5 +951,183 @@ mod tests {
         let history = store.list_query_history(ws_id, 50).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].execution_ms, 14);
+    }
+
+    #[test]
+    fn test_touch_workspace_opened() {
+        let store = LocalStore::new_in_memory().unwrap();
+        let ws = store
+            .save_workspace(SaveWorkspaceInput {
+                id: None,
+                name: "Test WS".into(),
+                engine: DatabaseEngine::Postgres,
+                host: "localhost".into(),
+                port: 5432,
+                username: "user".into(),
+                default_database: "db".into(),
+                connection_uri: None,
+                environment: EnvironmentTag::Local,
+                accent_color: "#10b981".into(),
+                safety_mode: SafetyMode::Standard,
+                commit_mode: CommitMode::Immediate,
+                ssl: SslConfig::default(),
+                ssh: SshTunnelConfig::default(),
+                folder_id: None,
+                credentials: WorkspaceCredentials::default(),
+            })
+            .unwrap();
+
+        assert_eq!(ws.last_opened_at, None);
+
+        store.touch_workspace_opened(&ws.id).unwrap();
+
+        let touched = store.get_workspace(&ws.id).unwrap();
+        assert!(touched.last_opened_at.is_some());
+    }
+
+    #[test]
+    fn test_update_saved_query_and_delete() {
+        let store = LocalStore::new_in_memory().unwrap();
+        let ws_id = "ws-query-test";
+
+        let created = store
+            .save_query(
+                None,
+                ws_id,
+                "Old Title",
+                None,
+                "main",
+                "SELECT 1;",
+            )
+            .unwrap();
+
+        let updated = store
+            .save_query(
+                Some(created.id.clone()),
+                ws_id,
+                "New Title",
+                Some("Reports".into()),
+                "main",
+                "SELECT 100;",
+            )
+            .unwrap();
+
+        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.title, "New Title");
+        assert_eq!(updated.query_text, "SELECT 100;");
+
+        store.delete_saved_query(&created.id).unwrap();
+        let remaining = store.list_saved_queries(ws_id).unwrap();
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_query_telemetry_isolation_and_stats() {
+        let store = LocalStore::new_in_memory().unwrap();
+
+        // Empty workspace returns zeroes
+        let empty = store.get_workspace_query_telemetry("ws-empty", 30).unwrap();
+        assert_eq!(empty.total_queries_executed, 0);
+        assert_eq!(empty.failed_queries_count, 0);
+        assert_eq!(empty.p95_query_ms, 0);
+        assert!(empty.recent_latencies.is_empty());
+
+        // Populate ws-a with 4 queries (1 error) and ws-b with 1 huge latency query
+        store
+            .record_query_history("ws-a", "app", "SELECT 1", "success", 10, Some(1))
+            .unwrap();
+        store
+            .record_query_history("ws-a", "app", "SELECT 2", "success", 20, Some(1))
+            .unwrap();
+        store
+            .record_query_history("ws-a", "app", "SELECT 3", "success", 30, Some(1))
+            .unwrap();
+        store
+            .record_query_history("ws-a", "app", "BAD SQL", "error", 100, None)
+            .unwrap();
+        store
+            .record_query_history("ws-b", "other", "SELECT 9", "success", 9999, Some(1))
+            .unwrap();
+
+        let telemetry_a = store.get_workspace_query_telemetry("ws-a", 30).unwrap();
+        assert_eq!(telemetry_a.total_queries_executed, 4);
+        assert_eq!(telemetry_a.failed_queries_count, 1);
+        assert!((telemetry_a.error_rate_pct - 25.0).abs() < 0.01);
+        assert!((telemetry_a.avg_query_ms - 40.0).abs() < 0.01);
+        assert_eq!(telemetry_a.p95_query_ms, 100);
+        assert_eq!(telemetry_a.recent_latencies.len(), 4);
+
+        // Verify workspace B is isolated
+        let telemetry_b = store.get_workspace_query_telemetry("ws-b", 30).unwrap();
+        assert_eq!(telemetry_b.total_queries_executed, 1);
+        assert_eq!(telemetry_b.p95_query_ms, 9999);
+    }
+
+    #[test]
+    fn test_workspace_folders_crud_and_safe_ungrouping() {
+        let store = LocalStore::new_in_memory().unwrap();
+
+        let folder = store
+            .save_workspace_folder(SaveWorkspaceFolderInput {
+                id: None,
+                name: "Acme Payments".into(),
+                color: "#6366f1".into(),
+            })
+            .unwrap();
+        assert_eq!(folder.name, "Acme Payments");
+
+        let ws = store
+            .save_workspace(SaveWorkspaceInput {
+                id: None,
+                name: "Payments Prod".into(),
+                engine: DatabaseEngine::Postgres,
+                host: "db.acme.io".into(),
+                port: 5432,
+                username: "admin".into(),
+                default_database: "payments".into(),
+                connection_uri: None,
+                environment: EnvironmentTag::Production,
+                accent_color: "#ef4444".into(),
+                safety_mode: SafetyMode::Safe,
+                commit_mode: CommitMode::Staged,
+                ssl: SslConfig::default(),
+                ssh: SshTunnelConfig::default(),
+                folder_id: Some(folder.id.clone()),
+                credentials: WorkspaceCredentials::default(),
+            })
+            .unwrap();
+        assert_eq!(ws.folder_id.as_deref(), Some(folder.id.as_str()));
+
+        // Rename folder
+        let renamed = store
+            .save_workspace_folder(SaveWorkspaceFolderInput {
+                id: Some(folder.id.clone()),
+                name: "Acme Core".into(),
+                color: "#10b981".into(),
+            })
+            .unwrap();
+        assert_eq!(renamed.id, folder.id);
+        assert_eq!(renamed.name, "Acme Core");
+        assert_eq!(store.list_workspace_folders().unwrap().len(), 1);
+
+        // Deleting folder ungroups workspace without deleting it
+        store.delete_workspace_folder(&folder.id).unwrap();
+        assert!(store.list_workspace_folders().unwrap().is_empty());
+
+        let ungrouped = store.get_workspace(&ws.id).unwrap();
+        assert_eq!(ungrouped.folder_id, None);
+
+        // Move workspace into a newly created folder
+        let folder2 = store
+            .save_workspace_folder(SaveWorkspaceFolderInput {
+                id: None,
+                name: "Analytics".into(),
+                color: "#0ea5e9".into(),
+            })
+            .unwrap();
+        let moved = store
+            .move_workspace_to_folder(&ws.id, Some(folder2.id.clone()))
+            .unwrap();
+        assert_eq!(moved.folder_id.as_deref(), Some(folder2.id.as_str()));
     }
 }
